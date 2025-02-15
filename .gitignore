@@ -4,3 +4,4 @@ node_modules
 ../api/node_modules
 ../api/node_modules
 /bin/
+/___automation___.npmrc___
