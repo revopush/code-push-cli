@@ -1595,6 +1595,50 @@ describe("CLI", () => {
       .done();
   });
 
+  it("release-react applies extraBundlerOptions to bundler command", (done: Mocha.Done): void => {
+    var bundleName = "bundle.js";
+    var command: cli.IReleaseReactCommand = {
+      type: cli.CommandType.releaseReact,
+      appName: "a",
+      appStoreVersion: null,
+      bundleName: bundleName,
+      deploymentName: "Staging",
+      description: "Test default entry file",
+      mandatory: false,
+      rollout: null,
+      platform: "ios",
+      extraBundlerOptions: ["--foo=bar", "--baz"],
+    };
+
+    ensureInTestAppDirectory();
+
+    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
+
+    cmdexec
+      .execute(command)
+      .then(() => {
+        var releaseCommand: cli.IReleaseCommand = <any>command;
+        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
+        releaseCommand.appStoreVersion = "1.2.3";
+
+        sinon.assert.calledOnce(spawn);
+        var spawnCommand: string = spawn.args[0][0];
+        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
+        assert.equal(spawnCommand, "node");
+        assert.equal(
+          spawnCommandArgs,
+          `${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
+            os.tmpdir(),
+            "CodePush"
+          )} --bundle-output ${path.join(os.tmpdir(), "CodePush", bundleName)} --dev false --entry-file index.ios.js --platform ios --foo=bar --baz`
+        );
+        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+
+        done();
+      })
+      .done();
+  });
+
   it("sessionList lists session name and expires fields", (done: Mocha.Done): void => {
     var command: cli.IAccessKeyListCommand = {
       type: cli.CommandType.sessionList,

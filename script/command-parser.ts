@@ -840,6 +840,14 @@ yargs
           "Name of build configuration which specifies the binary version you want to target this release at. For example, 'Debug' or 'Release' (iOS only)",
         type: "string",
       })
+      .option("extraBundlerOption", {
+        alias: "eo",
+        default: [],
+        demand: false,
+        description:
+          "Option that gets passed to react-native bundler. Can be specified multiple times.",
+        type: "array",
+      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return checkValidReleaseOptions(argv);
       });
@@ -1245,6 +1253,7 @@ export function createCommand(): cli.ICommand {
           releaseReactCommand.xcodeProjectFile = argv["xcodeProjectFile"] as any;
           releaseReactCommand.xcodeTargetName = argv["xcodeTargetName"] as any;
           releaseReactCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
+          releaseReactCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
         }
         break;
 
