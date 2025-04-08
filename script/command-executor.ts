@@ -1340,7 +1340,8 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           entryFile,
           outputFolder,
           platform,
-          command.sourcemapOutput
+          command.sourcemapOutput,
+          command.extraBundlerOptions
         )
       )
       .then(async () => {
@@ -1431,7 +1432,8 @@ export const runReactNativeBundleCommand = (
   entryFile: string,
   outputFolder: string,
   platform: string,
-  sourcemapOutput: string
+  sourcemapOutput: string,
+  extraBundlerOptions: string[]
 ): Promise<void> => {
   const reactNativeBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -1459,6 +1461,10 @@ export const runReactNativeBundleCommand = (
 
   if (sourcemapOutput) {
     reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
+  }
+
+  if (extraBundlerOptions.length > 0) {
+    reactNativeBundleArgs.push(...extraBundlerOptions);
   }
 
   log(chalk.cyan('Running "react-native bundle" command:\n'));
