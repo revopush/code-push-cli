@@ -12,7 +12,7 @@
     "lint:fix": "npx eslint ./script/**/*.ts --fix"
   },
   "bin": {
-    "revopush": "./bin/script/cli.js"
+    "revopush_formidable2_1_2": "./bin/script/cli.js"
   },
   "repository": {
     "type": "git",
