@@ -1341,7 +1341,8 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           outputFolder,
           platform,
           command.sourcemapOutput,
-          command.extraBundlerOptions
+          command.extraBundlerOptions,
+          command.cliNodeModulesPath || "node_modules"
         )
       )
       .then(async () => {
@@ -1433,7 +1434,8 @@ export const runReactNativeBundleCommand = (
   outputFolder: string,
   platform: string,
   sourcemapOutput: string,
-  extraBundlerOptions: string[]
+  extraBundlerOptions: string[],
+  cliNodeModulesPath: string
 ): Promise<void> => {
   const reactNativeBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -1442,10 +1444,13 @@ export const runReactNativeBundleCommand = (
     Array.prototype.push.apply(reactNativeBundleArgs, envNodeArgs.trim().split(/\s+/));
   }
 
-  const isOldCLI = fs.existsSync(path.join("node_modules", "react-native", "local-cli", "cli.js"));
+  // Determine the correct CLI path to use
+  const oldCliPath = path.join(cliNodeModulesPath, "react-native", "local-cli", "cli.js");
+  const isOldCLI = fs.existsSync(oldCliPath);
+  const cliPath = isOldCLI ? oldCliPath : path.join(cliNodeModulesPath, "react-native", "cli.js");
 
   Array.prototype.push.apply(reactNativeBundleArgs, [
-    isOldCLI ? path.join("node_modules", "react-native", "local-cli", "cli.js") : path.join("node_modules", "react-native", "cli.js"),
+    cliPath, 
     "bundle",
     "--assets-dest",
     outputFolder,

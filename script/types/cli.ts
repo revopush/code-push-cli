@@ -207,6 +207,7 @@ export interface IReleaseReactCommand extends IReleaseBaseCommand {
   xcodeTargetName?: string;
   buildConfigurationName?: string;
   extraBundlerOptions?: string[];
+  cliNodeModulesPath?: string;
 }
 
 export interface IRollbackCommand extends ICommand {

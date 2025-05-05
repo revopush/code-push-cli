@@ -405,6 +405,7 @@ code-push-standalone release-react <appName> <platform>
 [--xcodeProjectFile <xcodeProjectFile>]
 [--xcodeTargetName <xcodeTargetName>]
 [--buildConfigurationName <buildConfigurationName>]
+[--cliNodeModulesPath <cliNodeModulesPath>]
 ```
 
 The `release-react` command is a React Native-specific version of the "vanilla" [`release`](#releasing-app-updates) command, which supports all of the same parameters (e.g. `--mandatory`, `--description`), yet simplifies the process of releasing updates by performing the following additional behavior:
@@ -575,6 +576,12 @@ _NOTE: This parameter can be set using either --xcodeTargetName or -xt_
 Name of build configuration which specifies the binary version you want to target this release at. For example, 'Debug' or 'Release' (iOS only).
 
 _NOTE: This parameter can be set using either --buildConfigurationName or -c_
+
+#### Cli.js node_modules directory path parameter
+
+Path of the node_modules directory where the react-native/cli.js exists if not on the default node_modules/react-native/cli.js path. Useful for monorepo setup where it may for example exist on ../../node_modules/react-native/cli.js
+
+_NOTE: This parameter can be set using either --cliNodeModulesPath or -nm_
 
 ## Debugging CodePush Integration
 
