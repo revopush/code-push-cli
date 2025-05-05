@@ -45,7 +45,7 @@ import {
   Session,
   UpdateMetrics,
 } from "../script/types";
-import { getAndroidHermesEnabled, getiOSHermesEnabled, runHermesEmitBinaryCommand, isValidVersion } from "./react-native-utils";
+import { getAndroidHermesEnabled, getiOSHermesEnabled, runHermesEmitBinaryCommand, isValidVersion, getReactNativePackagePath } from "./react-native-utils";
 import { fileDoesNotExistOrIsDirectory, isBinaryOrZip, fileExists } from "./utils/file-utils";
 
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
@@ -1341,8 +1341,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           outputFolder,
           platform,
           command.sourcemapOutput,
-          command.extraBundlerOptions,
-          command.cliNodeModulesPath || "node_modules"
+          command.extraBundlerOptions
         )
       )
       .then(async () => {
@@ -1434,8 +1433,7 @@ export const runReactNativeBundleCommand = (
   outputFolder: string,
   platform: string,
   sourcemapOutput: string,
-  extraBundlerOptions: string[],
-  cliNodeModulesPath: string
+  extraBundlerOptions: string[]
 ): Promise<void> => {
   const reactNativeBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -1444,10 +1442,10 @@ export const runReactNativeBundleCommand = (
     Array.prototype.push.apply(reactNativeBundleArgs, envNodeArgs.trim().split(/\s+/));
   }
 
-  // Determine the correct CLI path to use
-  const oldCliPath = path.join(cliNodeModulesPath, "react-native", "local-cli", "cli.js");
+  const reactNativePackagePath = getReactNativePackagePath()
+  const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
   const isOldCLI = fs.existsSync(oldCliPath);
-  const cliPath = isOldCLI ? oldCliPath : path.join(cliNodeModulesPath, "react-native", "cli.js");
+  const cliPath = isOldCLI ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
 
   Array.prototype.push.apply(reactNativeBundleArgs, [
     cliPath, 

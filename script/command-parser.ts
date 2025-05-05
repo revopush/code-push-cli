@@ -848,14 +848,6 @@ yargs
           "Option that gets passed to react-native bundler. Can be specified multiple times.",
         type: "array",
       })
-      .option("cliNodeModulesPath", {
-        alias: "nm",
-        default: undefined,
-        demand: false,
-        description:
-          "Path of the node_modules directory where the react-native/cli.js exists if not on the default node_modules/react-native/cli.js path. Useful for monorepo setup where it may for example exist on ../../node_modules/react-native/cli.js",
-        type: "string",
-      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return checkValidReleaseOptions(argv);
       });
@@ -1262,7 +1254,6 @@ export function createCommand(): cli.ICommand {
           releaseReactCommand.xcodeTargetName = argv["xcodeTargetName"] as any;
           releaseReactCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
           releaseReactCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
-          releaseReactCommand.cliNodeModulesPath = argv["cliNodeModulesPath"] as any;
         }
         break;
 
