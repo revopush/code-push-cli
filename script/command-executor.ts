@@ -323,12 +323,13 @@ function deploymentHistoryClear(command: cli.IDeploymentHistoryClearCommand): Pr
 export const deploymentList = (command: cli.IDeploymentListCommand, showPackage: boolean = true): Promise<void> => {
   throwForInvalidOutputFormat(command.format);
   let deployments: Deployment[];
+  const DEPLOYMENTS_MAX_LENGTH = 10; // do not take metrics if number of deployment higher than this
 
   return sdk
     .getDeployments(command.appName)
     .then((retrievedDeployments: Deployment[]) => {
       deployments = retrievedDeployments;
-      if (showPackage) {
+      if (showPackage && deployments.length < DEPLOYMENTS_MAX_LENGTH) {
         const metricsPromises: Promise<void>[] = deployments.map((deployment: Deployment) => {
           if (deployment.package) {
             return sdk.getDeploymentMetrics(command.appName, deployment.name).then((metrics: DeploymentMetrics): void => {
