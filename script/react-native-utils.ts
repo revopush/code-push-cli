@@ -27,6 +27,7 @@ export async function runHermesEmitBinaryCommand(
 
   Array.prototype.push.apply(hermesArgs, [
     "-emit-binary",
+    "-O",
     "-out",
     path.join(outputFolder, bundleName + ".hbc"),
     path.join(outputFolder, bundleName),
@@ -34,7 +35,8 @@ export async function runHermesEmitBinaryCommand(
   ]);
 
   if (sourcemapOutput) {
-    hermesArgs.push("-output-source-map");
+    hermesArgs.push("-output-source-map")
+    hermesArgs.push("true")
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
@@ -142,6 +144,48 @@ function parseBuildGradleFile(gradleFile: string) {
   });
 }
 
+function parseGradlePropertiesFile(gradleFile: string): Record<string, string> {
+  let gradlePropsPath: string = path.join("android", "gradle.properties");
+
+  try {
+    if (gradleFile) {
+      const base = gradleFile;
+      const stat = fs.lstatSync(base);
+
+      if (stat.isDirectory()) {
+        if (path.basename(base) === "app") {
+          gradlePropsPath = path.join(base, "..", "gradle.properties");
+        } else {
+          gradlePropsPath = path.join(base, "gradle.properties");
+        }
+      } else {
+        gradlePropsPath = path.join(path.dirname(base), "..", "gradle.properties");
+      }
+    }
+  } catch {
+  }
+
+  gradlePropsPath = path.normalize(gradlePropsPath);
+
+  if (fileDoesNotExistOrIsDirectory(gradlePropsPath)) {
+    throw new Error(`Unable to find gradle.properties file "${gradlePropsPath}".`);
+  }
+
+  const text = fs.readFileSync(gradlePropsPath, "utf8");
+  const props: Record<string, string> = {};
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^([^=\s]+)\s*=\s*(.*)$/);
+    if (m) {
+      const key = m[1].trim();
+      const val = m[2].trim();
+      props[key] = val;
+    }
+  }
+  return props;
+}
+
 async function getHermesCommandFromGradle(gradleFile: string): Promise<string> {
   const buildGradle: any = await parseBuildGradleFile(gradleFile);
   const hermesCommandProperty: any = Array.from(buildGradle["project.ext.react"] || []).find((prop: string) =>
@@ -154,10 +198,27 @@ async function getHermesCommandFromGradle(gradleFile: string): Promise<string> {
   }
 }
 
-export function getAndroidHermesEnabled(gradleFile: string): boolean {
-  return parseBuildGradleFile(gradleFile).then((buildGradle: any) => {
-    return Array.from(buildGradle["project.ext.react"] || []).some((line: string) => /^enableHermes\s{0,}:\s{0,}true/.test(line));
-  });
+export async function getAndroidHermesEnabled(gradleFile: string): Promise<boolean> {
+  try {
+    const props = parseGradlePropertiesFile(gradleFile);
+    if (typeof props.hermesEnabled !== "undefined") {
+      const v = String(props.hermesEnabled).trim().toLowerCase();
+      if (v === "true")  return true;
+      if (v === "false") return false;
+    }
+  } catch {
+  }
+
+  try {
+    const buildGradle: any = await parseBuildGradleFile(gradleFile);
+    const lines: string[] = Array.from(buildGradle["project.ext.react"] || []);
+    if (lines.some((l) => /\benableHermes\s*:\s*true\b/.test(l)))  return true;
+    if (lines.some((l) => /\benableHermes\s*:\s*false\b/.test(l))) return false;
+  } catch {
+  }
+
+  const rnVersion = coerce(getReactNativeVersion())?.version;
+  return rnVersion && compare(rnVersion, "0.70.0") >= 0;
 }
 
 export function getiOSHermesEnabled(podFile: string): boolean {
@@ -171,7 +232,15 @@ export function getiOSHermesEnabled(podFile: string): boolean {
 
   try {
     const podFileContents = fs.readFileSync(podPath).toString();
-    return /([^#\n]*:?hermes_enabled(\s+|\n+)?(=>|:)(\s+|\n+)?true)/.test(podFileContents);
+
+    const hasTrue  = /([^#\n]*:?hermes_enabled(\s+|\n+)?(=>|:)(\s+|\n+)?true)/.test(podFileContents);
+    if (hasTrue) return true;
+
+    const hasFalse = /([^#\n]*:?hermes_enabled(\s+|\n+)?(=>|:)(\s+|\n+)?false)/.test(podFileContents);
+    if (hasFalse) return false;
+
+    const rnVersion = coerce(getReactNativeVersion())?.version;
+    return rnVersion && compare(rnVersion, "0.70.0") >= 0;
   } catch (error) {
     throw error;
   }

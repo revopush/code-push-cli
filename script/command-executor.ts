@@ -1457,6 +1457,9 @@ export const runReactNativeBundleCommand = (
     entryFile,
     "--platform",
     platform,
+    "--reset-cache",
+    "--minify",
+    false,
   ]);
 
   if (sourcemapOutput) {
