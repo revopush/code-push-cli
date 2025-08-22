@@ -36,7 +36,6 @@ export async function runHermesEmitBinaryCommand(
 
   if (sourcemapOutput) {
     hermesArgs.push("-output-source-map")
-    hermesArgs.push("true")
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));

@@ -1319,7 +1319,15 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           : getReactNativeProjectAppVersion(command, projectName);
 
         if (command.sourcemapOutput && !command.sourcemapOutput.endsWith(".map")) {
-          command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".map");
+          // see BundleHermesCTask -> resolvePackagerSourceMapFile
+          // for Hermes targeted bundles there are 2 source maps: "packager" (metro) and "compiler" (Hermes)
+          // Metro bundles use <bundleAssetName>.packager.map notation
+          if(command.useHermes){
+              command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".packager.map");
+          }
+          else{
+              command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".map");
+          }
         }
 
         return appVersionPromise;
