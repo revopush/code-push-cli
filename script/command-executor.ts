@@ -1258,6 +1258,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   let bundleName: string = command.bundleName;
   let entryFile: string = command.entryFile;
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
+  let sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const platform: string = (command.platform = command.platform.toLowerCase());
   const releaseCommand: cli.IReleaseCommand = <any>command;
   // Check for app and deployment exist before releasing an update.
@@ -1318,16 +1319,20 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           ? Q(command.appStoreVersion)
           : getReactNativeProjectAppVersion(command, projectName);
 
-        if (command.sourcemapOutput && !command.sourcemapOutput.endsWith(".map")) {
+        if (!sourcemapOutputFolder.endsWith(".map")) {
+
+          if (!command.sourcemapOutput){
+            // create tmp dir only if no dir was given by user. User need to crete that directory exist if sourcemapOutput is passes
+            await createEmptyTempReleaseFolder(sourcemapOutputFolder)
+          }
           // see BundleHermesCTask -> resolvePackagerSourceMapFile
           // for Hermes targeted bundles there are 2 source maps: "packager" (metro) and "compiler" (Hermes)
           // Metro bundles use <bundleAssetName>.packager.map notation
           const isHermes = await isHermesEnabled(command, platform);
           if (isHermes) {
-            // somehow hermeseenabled
-            command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".packager.map");
+            sourcemapOutputFolder = path.join(sourcemapOutputFolder, bundleName + ".packager.map");
           } else {
-            command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".map");
+            sourcemapOutputFolder = path.join(sourcemapOutputFolder, bundleName + ".map");
           }
         }
 
@@ -1349,7 +1354,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           entryFile,
           outputFolder,
           platform,
-          command.sourcemapOutput,
+          sourcemapOutputFolder,
           command.extraBundlerOptions
         )
       )
@@ -1361,7 +1366,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           await runHermesEmitBinaryCommand(
             bundleName,
             outputFolder,
-            command.sourcemapOutput,
+            sourcemapOutputFolder,
             command.extraHermesFlags,
             command.gradleFile
           );
@@ -1379,13 +1384,18 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
         return release(releaseCommand);
       })
-      .then(() => {
+      .then(async () => {
         if (!command.outputDir) {
-          deleteFolder(outputFolder);
+          await deleteFolder(outputFolder);
+        }
+
+        if (!command.sourcemapOutput){
+          await deleteFolder(sourcemapOutputFolder)
         }
       })
-      .catch((err: Error) => {
-        deleteFolder(outputFolder);
+      .catch(async (err: Error) => {
+        await deleteFolder(outputFolder);
+        await deleteFolder(sourcemapOutputFolder);
         throw err;
       })
   );
