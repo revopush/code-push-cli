@@ -1265,7 +1265,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   return (
     sdk
       .getDeployment(command.appName, command.deploymentName)
-      .then((): any => {
+      .then(async () => {
         releaseCommand.package = outputFolder;
 
         switch (platform) {
@@ -1322,11 +1322,12 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           // see BundleHermesCTask -> resolvePackagerSourceMapFile
           // for Hermes targeted bundles there are 2 source maps: "packager" (metro) and "compiler" (Hermes)
           // Metro bundles use <bundleAssetName>.packager.map notation
-          if(command.useHermes){
-              command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".packager.map");
-          }
-          else{
-              command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".map");
+          const isHermes = await isHermesEnabled(command, platform);
+          if (isHermes) {
+            // somehow hermeseenabled
+            command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".packager.map");
+          } else {
+            command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".map");
           }
         }
 
@@ -1353,12 +1354,9 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         )
       )
       .then(async () => {
-        const isHermesEnabled =
-          command.useHermes ||
-          (platform === "android" && (await getAndroidHermesEnabled(command.gradleFile))) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
-          (platform === "ios" && (await getiOSHermesEnabled(command.podFile))); // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
+        const isHermes = await isHermesEnabled(command, platform);
 
-        if (isHermesEnabled) {
+        if (isHermes) {
           log(chalk.cyan("\nRunning hermes compiler...\n"));
           await runHermesEmitBinaryCommand(
             bundleName,
@@ -1585,6 +1583,17 @@ function whoami(command: cli.ICommand): Promise<void> {
 
 function isCommandOptionSpecified(option: any): boolean {
   return option !== undefined && option !== null;
+}
+
+async function isHermesEnabled(command: cli.IReleaseReactCommand, platform: string) {
+  // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
+  const isAndroidHermesEnabled = await getAndroidHermesEnabled(command.gradleFile);
+  const isIOSHermesEnabled = getiOSHermesEnabled(command.podFile);
+  return (
+    command.useHermes ||
+    (platform === "android" && isAndroidHermesEnabled) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
+    (platform === "ios" && isIOSHermesEnabled)
+  );
 }
 
 function getSdk(accessKey: string, headers: Headers, customServerUrl: string): AccountManager {
