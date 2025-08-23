@@ -110,15 +110,17 @@ export async function runHermesEmitBinaryCommand(
           reject(new Error(`"compose-source-maps" command failed (exitCode=${exitCode}, signal=${signal}).`));
         }
 
+        resolve(null);
+        // 注释掉这部分diamagnetic，不删除hbc的sourceMap
         // Delete the HBC sourceMap, otherwise it will be included in 'code-push' bundle as well
-        fs.unlink(jsCompilerSourceMapFile, (err) => {
-          if (err) {
-            console.error(err);
-            reject(err);
-          }
+        // fs.unlink(jsCompilerSourceMapFile, (err) => {
+        //   if (err) {
+        //     console.error(err);
+        //     reject(err);
+        //   }
 
-          resolve(null);
-        });
+          
+        // });
       });
     });
   });
