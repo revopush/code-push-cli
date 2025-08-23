@@ -4,6 +4,8 @@ import * as path from "path";
 import * as childProcess from "child_process";
 import { coerce, compare, valid } from "semver";
 import { fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
+import * as dotenv from "dotenv";
+import { DotenvParseOutput } from "dotenv";
 
 const g2js = require("gradle-to-js/lib/parser");
 
@@ -12,11 +14,12 @@ export function isValidVersion(version: string): boolean {
 }
 
 export async function runHermesEmitBinaryCommand(
-    bundleName: string,
-    outputFolder: string,
-    sourcemapOutput: string,
-    extraHermesFlags: string[],
-    gradleFile: string
+  platform: string,
+  bundleName: string,
+  outputFolder: string,
+  sourcemapOutput: string,
+  extraHermesFlags: string[],
+  gradleFile: string
 ): Promise<void> {
   const hermesArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -34,8 +37,28 @@ export async function runHermesEmitBinaryCommand(
     ...extraHermesFlags,
   ]);
 
-  if (sourcemapOutput) {
-    hermesArgs.push("-output-source-map")
+  switch (platform) {
+    case "ios": {
+      // see react-native-xcode.sh
+      if (sourcemapOutput && getXcodeDotEnvValue("EMIT_SOURCEMAP") === "true") {
+        hermesArgs.push("-output-source-map");
+      }
+
+      hermesArgs.push('-max-diagnostic-width=80');
+
+      break;
+    }
+    case "android": {
+      // see com.facebook.react.ReactExtension   /** Flags to pass to Hermesc. Default: ["-O", "-output-source-map"] */
+      if (sourcemapOutput) {
+        hermesArgs.push("-output-source-map");
+      }
+
+      break;
+    }
+    default: {
+      throw new Error('Platform must be either "android", "ios".');
+    }
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
@@ -74,7 +97,8 @@ export async function runHermesEmitBinaryCommand(
       });
     });
   }).then(() => {
-    if (!sourcemapOutput) {
+    const jsCompilerSourceMapFile = path.join(outputFolder, bundleName + ".hbc" + ".map");
+    if (!sourcemapOutput || !fs.existsSync(jsCompilerSourceMapFile)) {
       // skip source map compose if source map is not enabled
       return;
     }
@@ -84,7 +108,6 @@ export async function runHermesEmitBinaryCommand(
       throw new Error("react-native compose-source-maps.js scripts is not found");
     }
 
-    const jsCompilerSourceMapFile = path.join(outputFolder, bundleName + ".hbc" + ".map");
     if (!fs.existsSync(jsCompilerSourceMapFile)) {
       throw new Error(`sourcemap file ${jsCompilerSourceMapFile} is not found`);
     }
@@ -161,8 +184,7 @@ function parseGradlePropertiesFile(gradleFile: string): Record<string, string> {
         gradlePropsPath = path.join(path.dirname(base), "..", "gradle.properties");
       }
     }
-  } catch {
-  }
+  } catch {}
 
   gradlePropsPath = path.normalize(gradlePropsPath);
 
@@ -202,22 +224,25 @@ export async function getAndroidHermesEnabled(gradleFile: string): Promise<boole
     const props = parseGradlePropertiesFile(gradleFile);
     if (typeof props.hermesEnabled !== "undefined") {
       const v = String(props.hermesEnabled).trim().toLowerCase();
-      if (v === "true")  return true;
+      if (v === "true") return true;
       if (v === "false") return false;
     }
-  } catch {
-  }
+  } catch {}
 
   try {
     const buildGradle: any = await parseBuildGradleFile(gradleFile);
     const lines: string[] = Array.from(buildGradle["project.ext.react"] || []);
-    if (lines.some((l) => /\benableHermes\s*:\s*true\b/.test(l)))  return true;
+    if (lines.some((l) => /\benableHermes\s*:\s*true\b/.test(l))) return true;
     if (lines.some((l) => /\benableHermes\s*:\s*false\b/.test(l))) return false;
-  } catch {
-  }
+  } catch {}
 
   const rnVersion = coerce(getReactNativeVersion())?.version;
   return rnVersion && compare(rnVersion, "0.70.0") >= 0;
+}
+
+export function getXcodeDotEnvValue(key: string): string | undefined {
+  const xcodeEnvs = loadEnvAsMap([path.join("ios", ".xcode.env.local"), path.join("ios", ".xcode.env.local")]);
+  return xcodeEnvs.get(key);
 }
 
 export function getiOSHermesEnabled(podFile: string): boolean {
@@ -232,7 +257,7 @@ export function getiOSHermesEnabled(podFile: string): boolean {
   try {
     const podFileContents = fs.readFileSync(podPath).toString();
 
-    const hasTrue  = /([^#\n]*:?hermes_enabled(\s+|\n+)?(=>|:)(\s+|\n+)?true)/.test(podFileContents);
+    const hasTrue = /([^#\n]*:?hermes_enabled(\s+|\n+)?(=>|:)(\s+|\n+)?true)/.test(podFileContents);
     if (hasTrue) return true;
 
     const hasFalse = /([^#\n]*:?hermes_enabled(\s+|\n+)?(=>|:)(\s+|\n+)?false)/.test(podFileContents);
@@ -243,6 +268,19 @@ export function getiOSHermesEnabled(podFile: string): boolean {
   } catch (error) {
     throw error;
   }
+}
+
+function loadEnvAsMap(envPaths = []): Map<string, string | undefined> {
+  const merged: DotenvParseOutput = {};
+
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      Object.assign(merged, dotenv.parse(fs.readFileSync(envPath))); // later files override earlier ones
+    }
+  }
+
+  // fallback to process.env for anything missing
+  return new Map([...Object.entries(process.env), ...Object.entries(merged)]);
 }
 
 function getHermesOSBin(): string {

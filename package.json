@@ -26,6 +26,7 @@
     "backslash": "^0.2.0",
     "chalk": "^4.1.2",
     "cli-table": "^0.3.11",
+    "dotenv": "^17.2.1",
     "email-validator": "^2.0.4",
     "gradle-to-js": "2.0.1",
     "jsonwebtoken": "^9.0.2",

@@ -45,7 +45,13 @@ import {
   Session,
   UpdateMetrics,
 } from "../script/types";
-import { getAndroidHermesEnabled, getiOSHermesEnabled, runHermesEmitBinaryCommand, isValidVersion } from "./react-native-utils";
+import {
+  getAndroidHermesEnabled,
+  getiOSHermesEnabled,
+  runHermesEmitBinaryCommand,
+  isValidVersion,
+  getXcodeDotEnvValue,
+} from "./react-native-utils";
 import { fileDoesNotExistOrIsDirectory, isBinaryOrZip, fileExists } from "./utils/file-utils";
 
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
@@ -1320,10 +1326,9 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           : getReactNativeProjectAppVersion(command, projectName);
 
         if (!sourcemapOutputFolder.endsWith(".map")) {
-
-          if (!command.sourcemapOutput){
+          if (!command.sourcemapOutput) {
             // create tmp dir only if no dir was given by user. User need to crete that directory exist if sourcemapOutput is passes
-            await createEmptyTempReleaseFolder(sourcemapOutputFolder)
+            await createEmptyTempReleaseFolder(sourcemapOutputFolder);
           }
           // see BundleHermesCTask -> resolvePackagerSourceMapFile
           // for Hermes targeted bundles there are 2 source maps: "packager" (metro) and "compiler" (Hermes)
@@ -1347,23 +1352,27 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       // This is needed to clear the react native bundler cache:
       // https://github.com/facebook/react-native/issues/4289
       .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
-      .then(() =>
-        runReactNativeBundleCommand(
-          bundleName,
-          command.development || false,
-          entryFile,
-          outputFolder,
-          platform,
-          sourcemapOutputFolder,
-          command.extraBundlerOptions
-        )
+      .then(async () =>{
+          await runReactNativeBundleCommand(
+            command,
+            bundleName,
+            command.development || false,
+            entryFile,
+            outputFolder,
+            platform,
+            sourcemapOutputFolder,
+            command.extraBundlerOptions
+          );
+      }
       )
       .then(async () => {
+
         const isHermes = await isHermesEnabled(command, platform);
 
         if (isHermes) {
           log(chalk.cyan("\nRunning hermes compiler...\n"));
           await runHermesEmitBinaryCommand(
+            platform,
             bundleName,
             outputFolder,
             sourcemapOutputFolder,
@@ -1389,13 +1398,11 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           await deleteFolder(outputFolder);
         }
 
-        if (!command.sourcemapOutput){
-          await deleteFolder(sourcemapOutputFolder)
+        if (!command.sourcemapOutput) {
+          await deleteFolder(sourcemapOutputFolder);
         }
       })
       .catch(async (err: Error) => {
-        await deleteFolder(outputFolder);
-        await deleteFolder(sourcemapOutputFolder);
         throw err;
       })
   );
@@ -1442,7 +1449,8 @@ function requestAccessKey(): Promise<string> {
   });
 }
 
-export const runReactNativeBundleCommand = (
+export const runReactNativeBundleCommand = async (
+  command: cli.IReleaseReactCommand,
   bundleName: string,
   development: boolean,
   entryFile: string,
@@ -1450,7 +1458,7 @@ export const runReactNativeBundleCommand = (
   platform: string,
   sourcemapOutput: string,
   extraBundlerOptions: string[]
-): Promise<void> => {
+) => {
   const reactNativeBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
 
@@ -1474,12 +1482,33 @@ export const runReactNativeBundleCommand = (
     "--platform",
     platform,
     "--reset-cache",
-    "--minify",
-    false,
   ]);
 
-  if (sourcemapOutput) {
-    reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
+  // platform-specific part where defaults or settings vary from ios to android
+  switch (platform) {
+    case "ios": {
+      // see react-native-xcode.sh
+      if (sourcemapOutput && getXcodeDotEnvValue("EMIT_SOURCEMAP") === "true") {
+        reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
+      }
+
+      Array.prototype.push.apply(reactNativeBundleArgs, ["--minify", !(command.useHermes || getiOSHermesEnabled(command.podFile))]);
+
+      break;
+    }
+    case "android": {
+      if (sourcemapOutput) {
+        reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
+      }
+      const isAndroidHermesEnabled = await getAndroidHermesEnabled(command.gradleFile);
+      const isHermes = command.useHermes || isAndroidHermesEnabled;
+      Array.prototype.push.apply(reactNativeBundleArgs, ["--minify", !isHermes]);
+
+      break;
+    }
+    default: {
+      throw new Error('Platform must be either "android", "ios".');
+    }
   }
 
   if (extraBundlerOptions.length > 0) {
