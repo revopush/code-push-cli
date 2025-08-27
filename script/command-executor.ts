@@ -50,6 +50,7 @@ import {
   isValidVersion,
   getBundleSourceMapOutput,
   getMinifyParams,
+  getReactNativePackagePath
 } from "./react-native-utils";
 import { fileDoesNotExistOrIsDirectory, isBinaryOrZip, fileExists } from "./utils/file-utils";
 
@@ -1452,10 +1453,13 @@ export const runReactNativeBundleCommand = async (
     Array.prototype.push.apply(reactNativeBundleArgs, envNodeArgs.trim().split(/\s+/));
   }
 
-  const isOldCLI = fs.existsSync(path.join("node_modules", "react-native", "local-cli", "cli.js"));
+  const reactNativePackagePath = getReactNativePackagePath()
+  const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
+  const isOldCLI = fs.existsSync(oldCliPath);
+  const cliPath = isOldCLI ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
 
   Array.prototype.push.apply(reactNativeBundleArgs, [
-    isOldCLI ? path.join("node_modules", "react-native", "local-cli", "cli.js") : path.join("node_modules", "react-native", "cli.js"),
+    cliPath,
     "bundle",
     "--assets-dest",
     outputFolder,

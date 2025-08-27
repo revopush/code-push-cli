@@ -385,7 +385,8 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
     }
   };
   // Hermes is bundled with react-native since 0.69
-  const bundledHermesEngine = path.join(getReactNativePackagePath(), "sdks", "hermesc", getHermesOSBin(), getHermesOSExe());
+  const reactNativePath = getReactNativePackagePath();
+  const bundledHermesEngine = path.join(reactNativePath, "sdks", "hermesc", getHermesOSBin(), getHermesOSExe());
   if (fileExists(bundledHermesEngine)) {
     return bundledHermesEngine;
   }
@@ -394,12 +395,14 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
   if (gradleHermesCommand) {
     return path.join("android", "app", gradleHermesCommand.replace("%OS-BIN%", getHermesOSBin()));
   } else {
+    const nodeModulesPath = getNodeModulesPath(reactNativePath);
+
     // assume if hermes-engine exists it should be used instead of hermesvm
-    const hermesEngine = path.join("node_modules", "hermes-engine", getHermesOSBin(), getHermesOSExe());
+    const hermesEngine = path.join(nodeModulesPath, "hermes-engine", getHermesOSBin(), getHermesOSExe());
     if (fileExists(hermesEngine)) {
       return hermesEngine;
     }
-    return path.join("node_modules", "hermesvm", getHermesOSBin(), "hermes");
+    return path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes");
   }
 }
 
@@ -412,7 +415,16 @@ function getComposeSourceMapsPath(): string {
   return null;
 }
 
-function getReactNativePackagePath(): string {
+function getNodeModulesPath(reactNativePath: string): string {
+ const nodeModulesPath = path.dirname(reactNativePath)
+  if (directoryExistsSync(nodeModulesPath)) {
+    return nodeModulesPath;
+  }
+
+  return path.join("node_modules");
+}
+
+export function getReactNativePackagePath(): string {
   const result = childProcess.spawnSync("node", ["--print", "require.resolve('react-native/package.json')"]);
   const packagePath = path.dirname(result.stdout.toString());
   if (result.status === 0 && directoryExistsSync(packagePath)) {
