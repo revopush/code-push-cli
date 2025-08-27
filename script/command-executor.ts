@@ -1,34 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import AccountManager = require("./management-sdk");
-
 const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
 import * as fs from "fs";
 import * as chalk from "chalk";
-
-const g2js = require("gradle-to-js/lib/parser");
 import * as moment from "moment";
-
-const opener = require("opener");
 import * as os from "os";
 import * as path from "path";
-
-const plist = require("plist");
-const progress = require("progress");
-const prompt = require("prompt");
 import * as Q from "q";
-
-const rimraf = require("rimraf");
 import * as semver from "semver";
-
-const Table = require("cli-table");
-import wordwrap = require("wordwrap");
 import * as cli from "../script/types/cli";
 import sign from "./sign";
-
-const xcode = require("xcode");
 import {
   AccessKey,
   Account,
@@ -45,20 +28,37 @@ import {
   UpdateMetrics,
 } from "../script/types";
 import {
-  isHermesEnabled,
-  runHermesEmitBinaryCommand,
-  isValidVersion,
   getBundleSourceMapOutput,
   getMinifyParams,
-  getReactNativePackagePath
+  getReactNativePackagePath,
+  isHermesEnabled,
+  isValidVersion,
+  runHermesEmitBinaryCommand,
 } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, isBinaryOrZip, fileExists } from "./utils/file-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip } from "./utils/file-utils";
+
+import AccountManager = require("./management-sdk");
+import wordwrap = require("wordwrap");
+import Promise = Q.Promise;
+
+const g2js = require("gradle-to-js/lib/parser");
+
+const opener = require("opener");
+
+const plist = require("plist");
+const progress = require("progress");
+const prompt = require("prompt");
+
+const rimraf = require("rimraf");
+
+const Table = require("cli-table");
+
+const xcode = require("xcode");
 
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
 const emailValidator = require("email-validator");
 const packageJson = require("../../package.json");
 const parseXml = Q.denodeify(require("xml2js").parseString);
-import Promise = Q.Promise;
 
 const properties = require("properties");
 
@@ -1453,10 +1453,9 @@ export const runReactNativeBundleCommand = async (
     Array.prototype.push.apply(reactNativeBundleArgs, envNodeArgs.trim().split(/\s+/));
   }
 
-  const reactNativePackagePath = getReactNativePackagePath()
+  const reactNativePackagePath = getReactNativePackagePath();
   const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
-  const isOldCLI = fs.existsSync(oldCliPath);
-  const cliPath = isOldCLI ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
+  const cliPath = fs.existsSync(oldCliPath) ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
 
   Array.prototype.push.apply(reactNativeBundleArgs, [
     cliPath,
