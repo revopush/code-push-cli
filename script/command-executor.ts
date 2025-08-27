@@ -24,7 +24,6 @@ const rimraf = require("rimraf");
 import * as semver from "semver";
 
 const Table = require("cli-table");
-const which = require("which");
 import wordwrap = require("wordwrap");
 import * as cli from "../script/types/cli";
 import sign from "./sign";
@@ -46,11 +45,11 @@ import {
   UpdateMetrics,
 } from "../script/types";
 import {
-  getAndroidHermesEnabled,
-  getiOSHermesEnabled,
+  isHermesEnabled,
   runHermesEmitBinaryCommand,
   isValidVersion,
-  getXcodeDotEnvValue,
+  getBundleSourceMapOutput,
+  getMinifyParams,
 } from "./react-native-utils";
 import { fileDoesNotExistOrIsDirectory, isBinaryOrZip, fileExists } from "./utils/file-utils";
 
@@ -1264,7 +1263,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   let bundleName: string = command.bundleName;
   let entryFile: string = command.entryFile;
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
-  let sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
+  const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const platform: string = (command.platform = command.platform.toLowerCase());
   const releaseCommand: cli.IReleaseCommand = <any>command;
   // Check for app and deployment exist before releasing an update.
@@ -1325,20 +1324,9 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           ? Q(command.appStoreVersion)
           : getReactNativeProjectAppVersion(command, projectName);
 
-        if (!sourcemapOutputFolder.endsWith(".map")) {
-          if (!command.sourcemapOutput) {
-            // create tmp dir only if no dir was given by user. User need to crete that directory exist if sourcemapOutput is passes
-            await createEmptyTempReleaseFolder(sourcemapOutputFolder);
-          }
-          // see BundleHermesCTask -> resolvePackagerSourceMapFile
-          // for Hermes targeted bundles there are 2 source maps: "packager" (metro) and "compiler" (Hermes)
-          // Metro bundles use <bundleAssetName>.packager.map notation
-          const isHermes = await isHermesEnabled(command, platform);
-          if (isHermes) {
-            sourcemapOutputFolder = path.join(sourcemapOutputFolder, bundleName + ".packager.map");
-          } else {
-            sourcemapOutputFolder = path.join(sourcemapOutputFolder, bundleName + ".map");
-          }
+        if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
+          // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
+          await createEmptyTempReleaseFolder(sourcemapOutputFolder);
         }
 
         return appVersionPromise;
@@ -1352,27 +1340,25 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       // This is needed to clear the react native bundler cache:
       // https://github.com/facebook/react-native/issues/4289
       .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
-      .then(async () =>{
-          await runReactNativeBundleCommand(
-            command,
-            bundleName,
-            command.development || false,
-            entryFile,
-            outputFolder,
-            platform,
-            sourcemapOutputFolder,
-            command.extraBundlerOptions
-          );
-      }
-      )
       .then(async () => {
-
+        await runReactNativeBundleCommand(
+          command,
+          bundleName,
+          command.development || false,
+          entryFile,
+          outputFolder,
+          sourcemapOutputFolder,
+          platform,
+          command.extraBundlerOptions
+        );
+      })
+      .then(async () => {
         const isHermes = await isHermesEnabled(command, platform);
 
         if (isHermes) {
           log(chalk.cyan("\nRunning hermes compiler...\n"));
           await runHermesEmitBinaryCommand(
-            platform,
+            command,
             bundleName,
             outputFolder,
             sourcemapOutputFolder,
@@ -1455,8 +1441,8 @@ export const runReactNativeBundleCommand = async (
   development: boolean,
   entryFile: string,
   outputFolder: string,
+  sourcemapOutputFolder: string,
   platform: string,
-  sourcemapOutput: string,
   extraBundlerOptions: string[]
 ) => {
   const reactNativeBundleArgs: string[] = [];
@@ -1484,32 +1470,18 @@ export const runReactNativeBundleCommand = async (
     "--reset-cache",
   ]);
 
-  // platform-specific part where defaults or settings vary from ios to android
-  switch (platform) {
-    case "ios": {
-      // see react-native-xcode.sh
-      if (sourcemapOutput && getXcodeDotEnvValue("EMIT_SOURCEMAP") === "true") {
-        reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
-      }
-
-      Array.prototype.push.apply(reactNativeBundleArgs, ["--minify", !(command.useHermes || getiOSHermesEnabled(command.podFile))]);
-
-      break;
+  if (sourcemapOutputFolder) {
+    let bundleSourceMapOutput = sourcemapOutputFolder;
+    if (!sourcemapOutputFolder.endsWith(".map")) {
+      // user defined full path to source map. let's use that instead
+      bundleSourceMapOutput = await getBundleSourceMapOutput(command, bundleName, sourcemapOutputFolder);
     }
-    case "android": {
-      if (sourcemapOutput) {
-        reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
-      }
-      const isAndroidHermesEnabled = await getAndroidHermesEnabled(command.gradleFile);
-      const isHermes = command.useHermes || isAndroidHermesEnabled;
-      Array.prototype.push.apply(reactNativeBundleArgs, ["--minify", !isHermes]);
 
-      break;
-    }
-    default: {
-      throw new Error('Platform must be either "android", "ios".');
-    }
+    reactNativeBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
   }
+
+  const minifyValue = await getMinifyParams(command);
+  Array.prototype.push.apply(reactNativeBundleArgs, minifyValue);
 
   if (extraBundlerOptions.length > 0) {
     reactNativeBundleArgs.push(...extraBundlerOptions);
@@ -1622,17 +1594,6 @@ function whoami(command: cli.ICommand): Promise<void> {
 
 function isCommandOptionSpecified(option: any): boolean {
   return option !== undefined && option !== null;
-}
-
-async function isHermesEnabled(command: cli.IReleaseReactCommand, platform: string) {
-  // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
-  const isAndroidHermesEnabled = await getAndroidHermesEnabled(command.gradleFile);
-  const isIOSHermesEnabled = getiOSHermesEnabled(command.podFile);
-  return (
-    command.useHermes ||
-    (platform === "android" && isAndroidHermesEnabled) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
-    (platform === "ios" && isIOSHermesEnabled)
-  );
 }
 
 function getSdk(accessKey: string, headers: Headers, customServerUrl: string): AccountManager {
