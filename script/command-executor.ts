@@ -1,35 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import AccountManager = require("./management-sdk");
-
 const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
 import * as fs from "fs";
 import * as chalk from "chalk";
-
-const g2js = require("gradle-to-js/lib/parser");
 import * as moment from "moment";
-
-const opener = require("opener");
 import * as os from "os";
 import * as path from "path";
-
-const plist = require("plist");
-const progress = require("progress");
-const prompt = require("prompt");
 import * as Q from "q";
-
-const rimraf = require("rimraf");
 import * as semver from "semver";
-
-const Table = require("cli-table");
-const which = require("which");
-import wordwrap = require("wordwrap");
 import * as cli from "../script/types/cli";
 import sign from "./sign";
-
-const xcode = require("xcode");
 import {
   AccessKey,
   Account,
@@ -45,14 +27,38 @@ import {
   Session,
   UpdateMetrics,
 } from "../script/types";
-import { getAndroidHermesEnabled, getiOSHermesEnabled, runHermesEmitBinaryCommand, isValidVersion, getReactNativePackagePath } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, isBinaryOrZip, fileExists } from "./utils/file-utils";
+import {
+  getBundleSourceMapOutput,
+  getMinifyParams,
+  getReactNativePackagePath,
+  isHermesEnabled,
+  isValidVersion,
+  runHermesEmitBinaryCommand,
+} from "./react-native-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip } from "./utils/file-utils";
+
+import AccountManager = require("./management-sdk");
+import wordwrap = require("wordwrap");
+import Promise = Q.Promise;
+
+const g2js = require("gradle-to-js/lib/parser");
+
+const opener = require("opener");
+
+const plist = require("plist");
+const progress = require("progress");
+const prompt = require("prompt");
+
+const rimraf = require("rimraf");
+
+const Table = require("cli-table");
+
+const xcode = require("xcode");
 
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
 const emailValidator = require("email-validator");
 const packageJson = require("../../package.json");
 const parseXml = Q.denodeify(require("xml2js").parseString);
-import Promise = Q.Promise;
 
 const properties = require("properties");
 
@@ -1258,6 +1264,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   let bundleName: string = command.bundleName;
   let entryFile: string = command.entryFile;
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
+  const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const platform: string = (command.platform = command.platform.toLowerCase());
   const releaseCommand: cli.IReleaseCommand = <any>command;
   // Check for app and deployment exist before releasing an update.
@@ -1265,7 +1272,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   return (
     sdk
       .getDeployment(command.appName, command.deploymentName)
-      .then((): any => {
+      .then(async () => {
         releaseCommand.package = outputFolder;
 
         switch (platform) {
@@ -1318,8 +1325,9 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           ? Q(command.appStoreVersion)
           : getReactNativeProjectAppVersion(command, projectName);
 
-        if (command.sourcemapOutput && !command.sourcemapOutput.endsWith(".map")) {
-          command.sourcemapOutput = path.join(command.sourcemapOutput, bundleName + ".map");
+        if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
+          // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
+          await createEmptyTempReleaseFolder(sourcemapOutputFolder);
         }
 
         return appVersionPromise;
@@ -1333,29 +1341,28 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       // This is needed to clear the react native bundler cache:
       // https://github.com/facebook/react-native/issues/4289
       .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
-      .then(() =>
-        runReactNativeBundleCommand(
+      .then(async () => {
+        await runReactNativeBundleCommand(
+          command,
           bundleName,
           command.development || false,
           entryFile,
           outputFolder,
+          sourcemapOutputFolder,
           platform,
-          command.sourcemapOutput,
           command.extraBundlerOptions
-        )
-      )
+        );
+      })
       .then(async () => {
-        const isHermesEnabled =
-          command.useHermes ||
-          (platform === "android" && (await getAndroidHermesEnabled(command.gradleFile))) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
-          (platform === "ios" && (await getiOSHermesEnabled(command.podFile))); // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
+        const isHermes = await isHermesEnabled(command, platform);
 
-        if (isHermesEnabled) {
+        if (isHermes) {
           log(chalk.cyan("\nRunning hermes compiler...\n"));
           await runHermesEmitBinaryCommand(
+            command,
             bundleName,
             outputFolder,
-            command.sourcemapOutput,
+            sourcemapOutputFolder,
             command.extraHermesFlags,
             command.gradleFile
           );
@@ -1373,13 +1380,16 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
         return release(releaseCommand);
       })
-      .then(() => {
+      .then(async () => {
         if (!command.outputDir) {
-          deleteFolder(outputFolder);
+          await deleteFolder(outputFolder);
+        }
+
+        if (!command.sourcemapOutput) {
+          await deleteFolder(sourcemapOutputFolder);
         }
       })
-      .catch((err: Error) => {
-        deleteFolder(outputFolder);
+      .catch(async (err: Error) => {
         throw err;
       })
   );
@@ -1426,15 +1436,16 @@ function requestAccessKey(): Promise<string> {
   });
 }
 
-export const runReactNativeBundleCommand = (
+export const runReactNativeBundleCommand = async (
+  command: cli.IReleaseReactCommand,
   bundleName: string,
   development: boolean,
   entryFile: string,
   outputFolder: string,
+  sourcemapOutputFolder: string,
   platform: string,
-  sourcemapOutput: string,
   extraBundlerOptions: string[]
-): Promise<void> => {
+) => {
   const reactNativeBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
 
@@ -1442,13 +1453,12 @@ export const runReactNativeBundleCommand = (
     Array.prototype.push.apply(reactNativeBundleArgs, envNodeArgs.trim().split(/\s+/));
   }
 
-  const reactNativePackagePath = getReactNativePackagePath()
+  const reactNativePackagePath = getReactNativePackagePath();
   const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
-  const isOldCLI = fs.existsSync(oldCliPath);
-  const cliPath = isOldCLI ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
+  const cliPath = fs.existsSync(oldCliPath) ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
 
   Array.prototype.push.apply(reactNativeBundleArgs, [
-    cliPath, 
+    cliPath,
     "bundle",
     "--assets-dest",
     outputFolder,
@@ -1460,11 +1470,21 @@ export const runReactNativeBundleCommand = (
     entryFile,
     "--platform",
     platform,
+    "--reset-cache",
   ]);
 
-  if (sourcemapOutput) {
-    reactNativeBundleArgs.push("--sourcemap-output", sourcemapOutput);
+  if (sourcemapOutputFolder) {
+    let bundleSourceMapOutput = sourcemapOutputFolder;
+    if (!sourcemapOutputFolder.endsWith(".map")) {
+      // user defined full path to source map. let's use that instead
+      bundleSourceMapOutput = await getBundleSourceMapOutput(command, bundleName, sourcemapOutputFolder);
+    }
+
+    reactNativeBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
   }
+
+  const minifyValue = await getMinifyParams(command);
+  Array.prototype.push.apply(reactNativeBundleArgs, minifyValue);
 
   if (extraBundlerOptions.length > 0) {
     reactNativeBundleArgs.push(...extraBundlerOptions);
