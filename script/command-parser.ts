@@ -732,6 +732,13 @@ yargs
         demand: false,
         description: "Path to the gradle file which specifies the binary version you want to target this release at (android only).",
       })
+      .option("initial", {
+        alias: "i",
+        default: false,
+        demand: false,
+        description: "Specifies whether release is initial (base) for given targetBinaryVersion.",
+        type: "boolean",
+      })
       .option("mandatory", {
         alias: "m",
         default: false,
@@ -1240,6 +1247,7 @@ export function createCommand(): cli.ICommand {
           releaseReactCommand.entryFile = argv["entryFile"] as any;
           releaseReactCommand.gradleFile = argv["gradleFile"] as any;
           releaseReactCommand.mandatory = argv["mandatory"] as any;
+          releaseReactCommand.initial = argv["initial"] as any;
           releaseReactCommand.noDuplicateReleaseError = argv["noDuplicateReleaseError"] as any;
           releaseReactCommand.plistFile = argv["plistFile"] as any;
           releaseReactCommand.plistFilePrefix = argv["plistFilePrefix"] as any;

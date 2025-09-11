@@ -156,6 +156,7 @@ export interface IPackageInfo {
   disabled?: boolean;
   mandatory?: boolean;
   rollout?: number;
+  initial?: boolean;
 }
 
 export interface IPatchCommand extends ICommand, IPackageInfo {

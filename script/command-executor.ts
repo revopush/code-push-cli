@@ -1233,11 +1233,13 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
     lastTotalProgress = currentProgress;
   };
 
+  // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
   const updateMetadata: PackageInfo = {
-    description: command.description,
-    isDisabled: command.disabled,
-    isMandatory: command.mandatory,
-    rollout: command.rollout,
+    description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
+    isDisabled: command.initial ? true : command.disabled,
+    isMandatory: command.initial ? false : command.mandatory,
+    isInitial: command.initial,
+    rollout: command.initial ? undefined : command.rollout,
   };
 
   return sdk

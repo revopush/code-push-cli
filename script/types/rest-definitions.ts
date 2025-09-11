@@ -49,6 +49,7 @@ export interface PackageInfo {
   description?: string;
   isDisabled?: boolean;
   isMandatory?: boolean;
+  isInitial?: boolean;
   /*generated*/ label?: string;
   /*generated*/ packageHash?: string;
   rollout?: number;
