@@ -364,9 +364,11 @@ export const deploymentList = (command: cli.IDeploymentListCommand, showPackage:
 };
 
 function deploymentRemove(command: cli.IDeploymentRemoveCommand): Promise<void> {
-  return confirm(
-    "Are you sure you want to remove this deployment? Note that its deployment key will be PERMANENTLY unrecoverable."
-  ).then((wasConfirmed: boolean): Promise<void> => {
+  const confirmation = command.isForce
+    ? Q.resolve(true)
+    : confirm("Are you sure you want to remove this deployment? Note that its deployment key will be PERMANENTLY unrecoverable.");
+
+  return confirmation.then((wasConfirmed: boolean): Promise<void> => {
     if (wasConfirmed) {
       return sdk.removeDeployment(command.appName, command.deploymentName).then((): void => {
         log('Successfully removed the "' + command.deploymentName + '" deployment from the "' + command.appName + '" app.');
