@@ -40,6 +40,7 @@ import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip } from "./util
 import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
 import Promise = Q.Promise;
+import { ReactNativePackageInfo } from "./types/rest-definitions";
 
 const g2js = require("gradle-to-js/lib/parser");
 
@@ -1206,33 +1207,6 @@ function patch(command: cli.IPatchCommand): Promise<void> {
 }
 
 export const release = (command: cli.IReleaseCommand): Promise<void> => {
-  if (isBinaryOrZip(command.package)) {
-    throw new Error(
-      "It is unnecessary to package releases in a .zip or binary file. Please specify the direct path to the update content's directory (e.g. /platforms/ios/www) or file (e.g. main.jsbundle)."
-    );
-  }
-
-  throwForInvalidSemverRange(command.appStoreVersion);
-  const filePath: string = command.package;
-  let isSingleFilePackage: boolean = true;
-
-  if (fs.lstatSync(filePath).isDirectory()) {
-    isSingleFilePackage = false;
-  }
-
-  let lastTotalProgress = 0;
-  const progressBar = new progress("Upload progress:[:bar] :percent :etas", {
-    complete: "=",
-    incomplete: " ",
-    width: 50,
-    total: 100,
-  });
-
-  const uploadProgress = (currentProgress: number): void => {
-    progressBar.tick(currentProgress - lastTotalProgress);
-    lastTotalProgress = currentProgress;
-  };
-
   // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
   const updateMetadata: PackageInfo = {
     description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
@@ -1240,27 +1214,10 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
     isMandatory: command.initial ? false : command.mandatory,
     isInitial: command.initial,
     rollout: command.initial ? undefined : command.rollout,
+    appVersion: command.appStoreVersion,
   };
 
-  return sdk
-    .isAuthenticated(true)
-    .then((isAuth: boolean): Promise<void> => {
-      return sdk.release(command.appName, command.deploymentName, filePath, command.appStoreVersion, updateMetadata, uploadProgress);
-    })
-    .then((): void => {
-      log(
-        'Successfully released an update containing the "' +
-          command.package +
-          '" ' +
-          (isSingleFilePackage ? "file" : "directory") +
-          ' to the "' +
-          command.deploymentName +
-          '" deployment of the "' +
-          command.appName +
-          '" app.'
-      );
-    })
-    .catch((err: CodePushError) => releaseErrorHandler(err, command));
+  return doRelease(command, updateMetadata);
 };
 
 export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => {
@@ -1269,15 +1226,13 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const platform: string = (command.platform = command.platform.toLowerCase());
-  const releaseCommand: cli.IReleaseCommand = <any>command;
+  const releaseCommand: cli.IReleaseReactCommand = <any>command;
   // Check for app and deployment exist before releasing an update.
   // This validation helps to save about 1 minute or more in case user has typed wrong app or deployment name.
   return (
     sdk
       .getDeployment(command.appName, command.deploymentName)
       .then(async () => {
-        releaseCommand.package = outputFolder;
-
         switch (platform) {
           case "android":
           case "ios":
@@ -1290,6 +1245,10 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           default:
             throw new Error('Platform must be either "android", "ios" or "windows".');
         }
+
+        releaseCommand.package = outputFolder;
+        releaseCommand.outputDir = outputFolder;
+        releaseCommand.bundleName = bundleName;
 
         let projectName: string;
 
@@ -1381,7 +1340,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       })
       .then(() => {
         log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
-        return release(releaseCommand);
+        return releaseReactNative(releaseCommand);
       })
       .then(async () => {
         if (!command.outputDir) {
@@ -1396,6 +1355,71 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         throw err;
       })
   );
+};
+
+const releaseReactNative = (command: cli.IReleaseReactCommand): Promise<void> => {
+  // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
+  const updateMetadata: ReactNativePackageInfo = {
+    description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
+    isDisabled: command.initial ? true : command.disabled,
+    isMandatory: command.initial ? false : command.mandatory,
+    isInitial: command.initial,
+    bundleName: command.bundleName,
+    outputDir: command.outputDir,
+    rollout: command.initial ? undefined : command.rollout,
+    appVersion: command.appStoreVersion,
+  };
+
+  return doRelease(command, updateMetadata);
+};
+
+const doRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, updateMetadata: PackageInfo): Promise<void> => {
+  if (isBinaryOrZip(command.package)) {
+    throw new Error(
+      "It is unnecessary to package releases in a .zip or binary file. Please specify the direct path to the update content's directory (e.g. /platforms/ios/www) or file (e.g. main.jsbundle)."
+    );
+  }
+
+  throwForInvalidSemverRange(command.appStoreVersion);
+  const filePath: string = command.package;
+  let isSingleFilePackage: boolean = true;
+
+  if (fs.lstatSync(filePath).isDirectory()) {
+    isSingleFilePackage = false;
+  }
+
+  let lastTotalProgress = 0;
+  const progressBar = new progress("Upload progress:[:bar] :percent :etas", {
+    complete: "=",
+    incomplete: " ",
+    width: 50,
+    total: 100,
+  });
+
+  const uploadProgress = (currentProgress: number): void => {
+    progressBar.tick(currentProgress - lastTotalProgress);
+    lastTotalProgress = currentProgress;
+  };
+
+  return sdk
+    .isAuthenticated(true)
+    .then((isAuth: boolean): Promise<void> => {
+      return sdk.release(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
+    })
+    .then((): void => {
+      log(
+        'Successfully released an update containing the "' +
+          command.package +
+          '" ' +
+          (isSingleFilePackage ? "file" : "directory") +
+          ' to the "' +
+          command.deploymentName +
+          '" deployment of the "' +
+          command.appName +
+          '" app.'
+      );
+    })
+    .catch((err: CodePushError) => releaseErrorHandler(err, command));
 };
 
 function rollback(command: cli.IRollbackCommand): Promise<void> {

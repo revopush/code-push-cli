@@ -191,6 +191,7 @@ export interface IReleaseCommand extends IReleaseBaseCommand {
 }
 
 export interface IReleaseReactCommand extends IReleaseBaseCommand {
+  package?: string;
   bundleName?: string;
   development?: boolean;
   entryFile?: string;

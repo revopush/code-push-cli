@@ -300,12 +300,10 @@ class AccountManager {
     appName: string,
     deploymentName: string,
     filePath: string,
-    targetBinaryVersion: string,
     updateMetadata: PackageInfo,
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
     return Promise<void>((resolve, reject, notify) => {
-      updateMetadata.appVersion = targetBinaryVersion;
       const request: superagent.Request<any> = superagent.post(
         this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`])
       );

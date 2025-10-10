@@ -55,6 +55,12 @@ export interface PackageInfo {
   rollout?: number;
 }
 
+/*inout*/
+export interface ReactNativePackageInfo extends PackageInfo {
+  bundleName?: string;
+  outputDir?: string;
+}
+
 /*out*/
 export interface UpdateCheckResponse extends PackageInfo {
   target_binary_range?: string;
