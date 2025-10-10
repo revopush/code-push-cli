@@ -132,6 +132,7 @@ export interface IDeploymentListCommand extends ICommand {
 export interface IDeploymentRemoveCommand extends ICommand {
   appName: string;
   deploymentName: string;
+  isForce?: boolean;
 }
 
 export interface IDeploymentRenameCommand extends ICommand {

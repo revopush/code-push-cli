@@ -247,7 +247,13 @@ function deploymentRemove(commandName: string, yargs: yargs.Argv): void {
   yargs
     .usage(USAGE_PREFIX + " deployment " + commandName + " <appName> <deploymentName>")
     .demand(/*count*/ 2, /*max*/ 2) // Require exactly two non-option arguments
-    .example("deployment " + commandName + " MyApp MyDeployment", 'Removes deployment "MyDeployment" from app "MyApp"');
+    .example("deployment " + commandName + " MyApp MyDeployment", 'Removes deployment "MyDeployment" from app "MyApp"')
+    .option("force", {
+      default: false,
+      demand: false,
+      description: "Bypass confirmation when removing deployments",
+      type: "boolean",
+    });
 
   addCommonConfiguration(yargs);
 }
@@ -851,8 +857,7 @@ yargs
         alias: "eo",
         default: [],
         demand: false,
-        description:
-          "Option that gets passed to react-native bundler. Can be specified multiple times.",
+        description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
         type: "array",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -1114,6 +1119,7 @@ export function createCommand(): cli.ICommand {
 
               deploymentRemoveCommand.appName = arg2;
               deploymentRemoveCommand.deploymentName = arg3;
+              deploymentRemoveCommand.isForce = argv["force"] as any;
             }
             break;
 
