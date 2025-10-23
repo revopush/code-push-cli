@@ -133,6 +133,11 @@ export interface Deployment {
   /*generated*/ package?: Package;
 }
 
+/*inout*/
+export interface BaseRelease {
+  bundleBlobUrl?: string;
+}
+
 /*out*/
 export interface BlobInfo {
   size: number;

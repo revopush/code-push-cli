@@ -34,6 +34,7 @@ import {
   isHermesEnabled,
   isValidVersion,
   runHermesEmitBinaryCommand,
+  takeHermesBaseBytecode,
 } from "./react-native-utils";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip } from "./utils/file-utils";
 
@@ -1227,6 +1228,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   let entryFile: string = command.entryFile;
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
+  const baseReleaseTmpFolder: string = path.join(os.tmpdir(), "CodePushBaseRelease");
   const platform: string = (command.platform = command.platform.toLowerCase());
   const releaseCommand: cli.IReleaseReactCommand = <any>command;
   // Check for app and deployment exist before releasing an update.
@@ -1321,6 +1323,9 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         const isHermes = await isHermesEnabled(command, platform);
 
         if (isHermes) {
+          await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
+          const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+
           log(chalk.cyan("\nRunning hermes compiler...\n"));
           await runHermesEmitBinaryCommand(
             command,
@@ -1328,7 +1333,8 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
             outputFolder,
             sourcemapOutputFolder,
             command.extraHermesFlags,
-            command.gradleFile
+            command.gradleFile,
+            baseBytecode
           );
         }
       })
@@ -1352,6 +1358,8 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         if (!command.sourcemapOutput) {
           await deleteFolder(sourcemapOutputFolder);
         }
+
+        await deleteFolder(baseReleaseTmpFolder);
       })
       .catch(async (err: Error) => {
         throw err;

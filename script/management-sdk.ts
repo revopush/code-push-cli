@@ -26,6 +26,7 @@ import {
   PackageInfo,
   ServerAccessKey,
   Session,
+  BaseRelease,
 } from "./types";
 
 const packageJson = require("../../package.json");
@@ -271,6 +272,12 @@ class AccountManager {
 
   public getDeployment(appName: string, deploymentName: string): Promise<Deployment> {
     return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}`])).then((res: JsonResponse) => res.body.deployment);
+  }
+
+  public getBaseRelease(appName: string, deploymentName: string, appVerison: string): Promise<BaseRelease> {
+    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/basebundle?appVersion=${appVerison}`])).then(
+      (res: JsonResponse) => res.body.basebundle
+    );
   }
 
   public renameDeployment(appName: string, oldDeploymentName: string, newDeploymentName: string): Promise<void> {
@@ -567,7 +574,7 @@ class AccountManager {
 
     request.set("Accept", `application/vnd.code-push.v${AccountManager.API_VERSION}+json`);
     request.set("Authorization", `Bearer ${this._accessKey}`);
-    request.set("X-CodePush-SDK-Version", packageJson.version);
+    request.set("X-CodePush-SDK-Version", packageJson.version); // TODO get version differently without require("../../package.json");
   }
 }
 

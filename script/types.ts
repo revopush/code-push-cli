@@ -13,6 +13,7 @@ export {
   PackageInfo,
   AccessKey as ServerAccessKey,
   UpdateMetrics,
+  BaseRelease,
 } from "../script/types/rest-definitions";
 
 export interface CodePushError {
