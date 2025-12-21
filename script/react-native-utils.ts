@@ -93,6 +93,8 @@ export async function runHermesEmitBinaryCommand(
     "-out",
     path.join(outputFolder, bundleName + ".hbc"),
     path.join(outputFolder, bundleName),
+    "-w",
+    "-max-diagnostic-width=80",
     ...extraHermesFlags,
   ]);
 

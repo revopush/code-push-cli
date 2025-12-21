@@ -42,6 +42,7 @@ import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
 import Promise = Q.Promise;
 import { ReactNativePackageInfo } from "./types/rest-definitions";
+import { getExpoCliPath } from "./expo-utils";
 
 const g2js = require("gradle-to-js/lib/parser");
 
@@ -553,6 +554,9 @@ export function execute(command: cli.ICommand) {
 
       case cli.CommandType.releaseReact:
         return releaseReact(<cli.IReleaseReactCommand>command);
+
+      case cli.CommandType.releaseExpo:
+        return releaseExpo(<cli.IReleaseReactCommand>command);
 
       case cli.CommandType.rollback:
         return rollback(<cli.IRollbackCommand>command);
@@ -1223,6 +1227,228 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
   return doRelease(command, updateMetadata);
 };
 
+export const runExpoExportEmbedCommand = async (
+  command: cli.IReleaseReactCommand,
+  bundleName: string,
+  development: boolean,
+  // entryFile: string,
+  outputFolder: string,
+  sourcemapOutputFolder: string,
+  platform: string,
+  extraBundlerOptions: string[]
+) => {
+  const expoBundleArgs: string[] = [];
+  const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
+
+  if (typeof envNodeArgs !== "undefined") {
+    Array.prototype.push.apply(expoBundleArgs, envNodeArgs.trim().split(/\s+/));
+  }
+
+  const expoCliPath = getExpoCliPath();
+
+  Array.prototype.push.apply(expoBundleArgs, [
+    expoCliPath,
+    "export:embed",
+    "--assets-dest",
+    outputFolder,
+    "--bundle-output",
+    path.join(outputFolder, bundleName),
+    "--dev",
+    development,
+    "--platform",
+    platform,
+    "--minify",
+    false,
+    "--reset-cache",
+  ]);
+
+  if (sourcemapOutputFolder) {
+    let bundleSourceMapOutput = sourcemapOutputFolder;
+    if (!sourcemapOutputFolder.endsWith(".map")) {
+      // user defined directory, нужно вычислить полный путь
+      bundleSourceMapOutput = await getBundleSourceMapOutput(command, bundleName, sourcemapOutputFolder);
+    }
+
+    expoBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
+  }
+
+  // const minifyValue = await getMinifyParams(command);
+  // Array.prototype.push.apply(expoBundleArgs, minifyValue);
+
+  if (extraBundlerOptions.length > 0) {
+    expoBundleArgs.push(...extraBundlerOptions);
+  }
+
+  log(chalk.cyan('Running "expo export:embed" command:\n'));
+
+  const projectRoot = process.cwd();
+  expoBundleArgs.push(projectRoot);
+
+  log("expoBundleArgs raw:" +  JSON.stringify(expoBundleArgs, null, 2));
+
+  const expoBundleProcess = spawn("node", expoBundleArgs);
+  log(`node ${expoBundleArgs.join(" ")}`);
+
+  return Promise<void>((resolve, reject, notify) => {
+    expoBundleProcess.stdout.on("data", (data: Buffer) => {
+      log(data.toString().trim());
+    });
+
+    expoBundleProcess.stderr.on("data", (data: Buffer) => {
+      console.error(data.toString().trim());
+    });
+
+    expoBundleProcess.on("close", (exitCode: number) => {
+      if (exitCode) {
+        reject(new Error(`"expo export:embed" command exited with code ${exitCode}.`));
+      }
+
+      resolve(<void>null);
+    });
+  });
+};
+
+export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> => {
+  let bundleName: string = command.bundleName;
+  // let entryFile: string = command.entryFile;
+  const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
+  const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
+  const baseReleaseTmpFolder: string = path.join(os.tmpdir(), "CodePushBaseRelease");
+  const platform: string = (command.platform = command.platform.toLowerCase());
+  const releaseCommand: cli.IReleaseReactCommand = <any>command;
+
+  return (
+    sdk
+      .getDeployment(command.appName, command.deploymentName)
+      .then(async () => {
+        switch (platform) {
+          case "android":
+          case "ios":
+            if (!bundleName) {
+              bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
+            }
+            break;
+
+          default:
+            throw new Error('Platform must be either "android" or "ios" for the "release-expo" command.');
+        }
+
+        releaseCommand.package = outputFolder;
+        releaseCommand.outputDir = outputFolder;
+        releaseCommand.bundleName = bundleName;
+
+        let projectName: string;
+
+        try {
+          const projectPackageJson: any = require(path.join(process.cwd(), "package.json"));
+          projectName = projectPackageJson.name;
+          if (!projectName) {
+            throw new Error('The "package.json" file in the CWD does not have the "name" field set.');
+          }
+
+          if (!projectPackageJson.dependencies["react-native"]) {
+            throw new Error("The project in the CWD is not a React Native project.");
+          }
+        } catch (error) {
+          throw new Error(
+            'Unable to find or read "package.json" in the CWD. The "release-expo" command must be executed in a React Native project folder.'
+          );
+        }
+
+        // TODO: do we really need entryFile for expo?
+
+        // if (!entryFile) {
+        //   entryFile = `index.${platform}.js`;
+        //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
+        //     entryFile = "index.js";
+        //   }
+        //
+        //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
+        //     throw new Error(`Entry file "index.${platform}.js" or "index.js" does not exist.`);
+        //   }
+        // } else {
+        //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
+        //     throw new Error(`Entry file "${entryFile}" does not exist.`);
+        //   }
+        // }
+
+        const appVersionPromise: Promise<string> = command.appStoreVersion
+          ? Q(command.appStoreVersion)
+          : getReactNativeProjectAppVersion(command, projectName);
+
+        if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
+          await createEmptyTempReleaseFolder(sourcemapOutputFolder);
+        }
+
+        return appVersionPromise;
+      })
+      .then((appVersion: string) => {
+        throwForInvalidSemverRange(appVersion);
+        releaseCommand.appStoreVersion = appVersion;
+
+        return createEmptyTempReleaseFolder(outputFolder);
+      })
+      .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
+      .then(async () => {
+        await runExpoExportEmbedCommand(
+          command,
+          bundleName,
+          command.development || false,
+          // entryFile,
+          outputFolder,
+          sourcemapOutputFolder,
+          platform,
+          command.extraBundlerOptions
+        );
+      })
+      .then(async () => {
+        const isHermes = await isHermesEnabled(command, platform);
+
+        if (isHermes) {
+          await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
+          const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+
+          log(chalk.cyan("\nRunning hermes compiler.\n"));
+          await runHermesEmitBinaryCommand(
+            command,
+            bundleName,
+            outputFolder,
+            sourcemapOutputFolder,
+            command.extraHermesFlags,
+            command.gradleFile,
+            baseBytecode
+          );
+        }
+      })
+      .then(async () => {
+        if (command.privateKeyPath) {
+          log(chalk.cyan("\nSigning the bundle:\n"));
+          await sign(command.privateKeyPath, outputFolder);
+        } else {
+          console.log("private key was not provided");
+        }
+      })
+      .then(() => {
+        log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
+        return releaseReactNative(releaseCommand);
+      })
+      .then(async () => {
+        if (!command.outputDir) {
+          await deleteFolder(outputFolder);
+        }
+
+        if (!command.sourcemapOutput) {
+          await deleteFolder(sourcemapOutputFolder);
+        }
+
+        await deleteFolder(baseReleaseTmpFolder);
+      })
+      .catch(async (err: Error) => {
+        throw err;
+      })
+  );
+};
+
 export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => {
   let bundleName: string = command.bundleName;
   let entryFile: string = command.entryFile;
@@ -1272,6 +1498,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           );
         }
 
+        // TODO: check entry file detection
         if (!entryFile) {
           entryFile = `index.${platform}.js`;
           if (fileDoesNotExistOrIsDirectory(entryFile)) {
@@ -1414,6 +1641,8 @@ const doRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, upda
   return sdk
     .isAuthenticated(true)
     .then((isAuth: boolean): Promise<void> => {
+      log('Release file path: ' + filePath)
+      log('Metadata: ' + JSON.stringify(updateMetadata))
       return sdk.release(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
     })
     .then((): void => {

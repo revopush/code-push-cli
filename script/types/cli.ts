@@ -36,6 +36,7 @@ export enum CommandType {
   sessionList,
   sessionRemove,
   whoami,
+  releaseExpo,
 }
 
 export interface ICommand {
