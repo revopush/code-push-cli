@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { extractMetadataFromIOS } from "./binary-utils";
+
 const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
 import * as fs from "fs";
@@ -36,7 +38,7 @@ import {
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip } from "./utils/file-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extract } from "./utils/file-utils";
 
 import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
@@ -557,6 +559,9 @@ export function execute(command: cli.ICommand) {
 
       case cli.CommandType.releaseExpo:
         return releaseExpo(<cli.IReleaseReactCommand>command);
+
+      case cli.CommandType.releaseBinary:
+        return releaseBinary(<cli.IReleaseBinaryCommand>command);
 
       case cli.CommandType.rollback:
         return rollback(<cli.IRollbackCommand>command);
@@ -1227,6 +1232,22 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
   return doRelease(command, updateMetadata);
 };
 
+export const releaseNative = (command: cli.IReleaseReactCommand): Promise<void> => {
+  // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
+  const updateMetadata: ReactNativePackageInfo = {
+    description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
+    isDisabled: command.initial ? true : command.disabled,
+    isMandatory: command.initial ? false : command.mandatory,
+    isInitial: command.initial,
+    bundleName: command.bundleName,
+    outputDir: command.outputDir,
+    rollout: command.initial ? undefined : command.rollout,
+    appVersion: command.appStoreVersion,
+  };
+
+  return doNativeRelease(command, updateMetadata);
+};
+
 export const runExpoExportEmbedCommand = async (
   command: cli.IReleaseReactCommand,
   bundleName: string,
@@ -1594,6 +1615,99 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   );
 };
 
+export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void> => {
+  const platform: string = command.platform.toLowerCase();
+  let bundleName: string = command.bundleName;
+  const targetBinaryPath: string = command.targetBinary;
+  const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
+  const extractFolder: string = path.join(os.tmpdir(), "CodePushBinaryExtract");
+
+  // Validate platform
+  if (platform !== "ios" && platform !== "android") {
+    throw new Error('Platform must be either "ios" or "android" for the "release-binary" command.');
+  }
+
+  // Validate target binary file exists
+  if (!fileExists(targetBinaryPath)) {
+    throw new Error(`Target binary file "${targetBinaryPath}" does not exist.`);
+  }
+
+  // Validate file extension matches platform
+  if (platform === "ios" && !targetBinaryPath.toLowerCase().endsWith(".ipa")) {
+    throw new Error('For iOS platform, target binary must be an .ipa file.');
+  }
+  if (platform === "android" && !targetBinaryPath.toLowerCase().endsWith(".apk")) {
+    throw new Error('For Android platform, target binary must be an .apk file.');
+  }
+
+  return (
+    sdk
+      .getDeployment(command.appName, command.deploymentName)
+      .then(async () => {
+        // Create output folders
+        await createEmptyTempReleaseFolder(outputFolder);
+        await createEmptyTempReleaseFolder(extractFolder);
+
+        // Extract the binary file
+        log(chalk.cyan(`\nExtracting ${platform === "ios" ? "IPA" : "APK/ARR"} file:\n`));
+        await extract(targetBinaryPath, extractFolder);
+
+        if (!bundleName) {
+          bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
+        }
+
+        if (platform === "ios") {
+
+          const zipPath = await extractMetadataFromIOS(extractFolder, outputFolder)
+
+          // Clean up extract folder
+          await deleteFolder(extractFolder);
+
+          // Use the zip file as package for release
+          const releaseCommand: cli.IReleaseReactCommand = {
+            type: cli.CommandType.release,
+            appName: command.appName,
+            deploymentName: command.deploymentName,
+            appStoreVersion: command.appStoreVersion || "1.0.0",
+            package: zipPath,
+            description: command.description,
+            disabled: command.disabled,
+            mandatory: command.mandatory,
+            rollout: command.rollout,
+            noDuplicateReleaseError: command.noDuplicateReleaseError,
+            platform: platform,
+            outputDir: outputFolder,
+            bundleName: bundleName
+          };
+
+          return releaseNative(releaseCommand).then(async () => {
+            // Clean up zip file
+            if (fs.existsSync(zipPath)) {
+              fs.unlinkSync(zipPath);
+            }
+
+            await deleteFolder(outputFolder);
+          });
+        } else {
+          // Android platform - similar logic but different structure
+          // APK structure is different, need to extract and find CodePush folder
+          // For now, throw error as Android structure needs to be defined
+          throw new Error("Android platform support for release-binary is not yet implemented.");
+        }
+      })
+      .catch(async (err: Error) => {
+        // Clean up on error
+        try {
+          await deleteFolder(extractFolder);
+          await deleteFolder(outputFolder);
+        } catch (cleanupErr) {
+          // Ignore cleanup errors
+        }
+        throw err;
+      })
+  );
+};
+
 const releaseReactNative = (command: cli.IReleaseReactCommand): Promise<void> => {
   // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
   const updateMetadata: ReactNativePackageInfo = {
@@ -1656,6 +1770,51 @@ const doRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, upda
           '" deployment of the "' +
           command.appName +
           '" app.'
+      );
+    })
+    .catch((err: CodePushError) => releaseErrorHandler(err, command));
+};
+
+
+const doNativeRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, updateMetadata: ReactNativePackageInfo): Promise<void> => {
+  log(command.package)
+
+  throwForInvalidSemverRange(command.appStoreVersion);
+
+  const filePath: string = command.package;
+
+  let lastTotalProgress = 0;
+
+  const progressBar = new progress("Upload progress:[:bar] :percent :etas", {
+    complete: "=",
+    incomplete: " ",
+    width: 50,
+    total: 100,
+  });
+
+  const uploadProgress = (currentProgress: number): void => {
+    progressBar.tick(currentProgress - lastTotalProgress);
+    lastTotalProgress = currentProgress;
+  };
+
+  return sdk
+    .isAuthenticated(true)
+    .then((): Promise<void> => {
+      log('Release file path: ' + filePath)
+      log('Metadata: ' + JSON.stringify(updateMetadata))
+      return sdk.releaseNative(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
+    })
+    .then((): void => {
+      log(
+        'Successfully released an update containing the "' +
+        command.package +
+        '" ' +
+        "directory" +
+        ' to the "' +
+        command.deploymentName +
+        '" deployment of the "' +
+        command.appName +
+        '" app.'
       );
     })
     .catch((err: CodePushError) => releaseErrorHandler(err, command));

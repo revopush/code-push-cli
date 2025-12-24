@@ -37,6 +37,7 @@ export enum CommandType {
   sessionRemove,
   whoami,
   releaseExpo,
+  releaseBinary,
 }
 
 export interface ICommand {
@@ -211,6 +212,14 @@ export interface IReleaseReactCommand extends IReleaseBaseCommand {
   xcodeTargetName?: string;
   buildConfigurationName?: string;
   extraBundlerOptions?: string[];
+}
+
+export interface IReleaseBinaryCommand extends IReleaseBaseCommand {
+  platform: string;
+  targetBinary: string;
+  targetBinaryVersion?: string;
+  outputDir?: string;
+  bundleName?: string;
 }
 
 export interface IRollbackCommand extends ICommand {

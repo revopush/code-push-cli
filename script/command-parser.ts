@@ -1058,6 +1058,39 @@ yargs
 
     addCommonConfiguration(yargs);
   })
+  .command("release-binary", "Release a binary update to an app deployment", (yargs: yargs.Argv) => {
+    yargs
+      .usage(USAGE_PREFIX + " release-binary <appName> <platform> <targetBinary> [options]")
+      .demand(/*count*/ 3, /*max*/ 3) // Require exactly three non-option arguments
+      .example(
+        "release-binary MyApp ios ./app.ipa",
+        'Releases the iOS binary update from "./app.ipa" to the "MyApp" app\'s "Staging" deployment'
+      )
+      .example(
+        "release-binary MyApp android ./app.apk -d Production",
+        'Releases the Android binary update from "./app.apk" to the "MyApp" app\'s "Production" deployment'
+      )
+      .option("deploymentName", {
+        alias: "d",
+        default: "Staging",
+        demand: false,
+        description: "Deployment to release the update to",
+        type: "string",
+      })
+      .option("targetBinaryVersion", {
+        alias: "t",
+        default: null,
+        demand: false,
+        description:
+          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).',
+        type: "string",
+      })
+      .check((argv: any, aliases: { [aliases: string]: string }): any => {
+        return checkValidReleaseOptions(argv);
+      });
+
+    addCommonConfiguration(yargs);
+  })
   .command("rollback", "Rollback the latest release for an app deployment", (yargs: yargs.Argv) => {
     yargs
       .usage(USAGE_PREFIX + " rollback <appName> <deploymentName> [options]")
@@ -1497,6 +1530,20 @@ export function createCommand(): cli.ICommand {
           releaseExpoCommand.xcodeTargetName = argv["xcodeTargetName"] as any;
           releaseExpoCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
           releaseExpoCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
+        }
+        break;
+
+      case "release-binary":
+        if (arg1 && arg2 && arg3) {
+          cmd = { type: cli.CommandType.releaseBinary };
+
+          const releaseBinaryCommand = <cli.IReleaseBinaryCommand>cmd;
+
+          releaseBinaryCommand.appName = arg1;
+          releaseBinaryCommand.platform = arg2;
+          releaseBinaryCommand.targetBinary = arg3;
+          releaseBinaryCommand.deploymentName = argv["deploymentName"] as any;
+          releaseBinaryCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
         }
         break;
 

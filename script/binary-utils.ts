@@ -1,0 +1,113 @@
+import * as path from "path";
+import * as fs from "fs";
+import * as chalk from "chalk";
+import { log } from "./command-executor";
+import { hashFile } from "./hash-utils";
+import * as os from "os";
+import * as Q from "q";
+import * as yazl from "yazl";
+
+import Promise = Q.Promise;
+
+export async function extractMetadataFromIOS(extractFolder, outputFolder) {
+  const payloadFolder = path.join(extractFolder, "Payload");
+  if (!fs.existsSync(payloadFolder)) {
+    throw new Error("Invalid IPA structure: Payload folder not found.");
+  }
+
+  const appFolders = fs.readdirSync(payloadFolder).filter((item) => {
+    const itemPath = path.join(payloadFolder, item);
+    return fs.statSync(itemPath).isDirectory() && item.endsWith(".app");
+  });
+
+  if (appFolders.length === 0) {
+    throw new Error("Invalid IPA structure: No .app folder found in Payload.");
+  }
+
+  const appFolder = path.join(payloadFolder, appFolders[0]);
+  const codePushFolder = path.join(appFolder, "assets");
+
+  const fileHashes: { [key: string]: string } = {};
+
+  if (fs.existsSync(codePushFolder)) {
+    await calculateHashesForDirectory(codePushFolder, appFolder, fileHashes);
+  } else {
+    log(chalk.yellow(`\nWarning: CodePush folder not found in IPA.\n`));
+  }
+
+  // Get main.jsbundle from root of app folder
+  const mainJsBundlePath = path.join(appFolder, "main.jsbundle");
+  if (fs.existsSync(mainJsBundlePath)) {
+    log(chalk.cyan(`\nFound main.jsbundle, calculating hash:\n`));
+    const bundleHash = await hashFile(mainJsBundlePath);
+    fileHashes["CodePush/main.jsbundle"] = bundleHash;
+
+    // Copy bundle to output folder
+    const outputCodePushFolder = path.join(outputFolder, "CodePush");
+    fs.mkdirSync(outputCodePushFolder, { recursive: true });
+    const outputBundlePath = path.join(outputCodePushFolder, "main.jsbundle");
+    fs.copyFileSync(mainJsBundlePath, outputBundlePath);
+  } else {
+    throw new Error("main.jsbundle not found in IPA root folder.");
+  }
+
+  // Save packageManifest.json
+  const manifestPath = path.join(outputFolder, "packageManifest.json");
+  fs.writeFileSync(manifestPath, JSON.stringify(fileHashes, null, 2));
+  log(chalk.cyan(`\nSaved packageManifest.json with ${Object.keys(fileHashes).length} entries.\n`));
+
+  // Create zip archive with packageManifest.json and bundle file
+  const zipPath = path.join(os.tmpdir(), `CodePushBinary-${Date.now()}.zip`);
+  await createZipArchive(outputFolder, zipPath, ["packageManifest.json", "CodePush/main.jsbundle"]);
+
+  return zipPath;
+}
+
+async function calculateHashesForDirectory(
+  directoryPath: string,
+  basePath: string,
+  fileHashes: { [key: string]: string }
+) {
+  const items = fs.readdirSync(directoryPath);
+
+  for (const item of items) {
+    const itemPath = path.join(directoryPath, item);
+    const stat = fs.statSync(itemPath);
+
+    if (stat.isDirectory()) {
+      await calculateHashesForDirectory(itemPath, basePath, fileHashes);
+    } else {
+      // Calculate relative path from basePath (app folder) to the file
+      const relativePath = path.relative(basePath, itemPath).replace(/\\/g, "/");
+      const hash = await hashFile(itemPath);
+      const hashKey = `CodePush/${relativePath}`
+      fileHashes[hashKey] = hash;
+      log(chalk.gray(`  ${relativePath}:${hash.substring(0, 8)}...\n`));
+    }
+  }
+}
+
+function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Promise<void> {
+  return Q.Promise<void>((resolve, reject) => {
+    const zipFile = new yazl.ZipFile();
+    const writeStream = fs.createWriteStream(zipPath);
+
+    zipFile.outputStream
+      .pipe(writeStream)
+      .on("error", (error: Error) => {
+        reject(error);
+      })
+      .on("close", () => {
+        resolve();
+      });
+
+    for (const file of filesToInclude) {
+      const filePath = path.join(sourceFolder, file);
+      if (fs.existsSync(filePath)) {
+        zipFile.addFile(filePath, file);
+      }
+    }
+
+    zipFile.end();
+  });
+}

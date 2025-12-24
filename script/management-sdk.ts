@@ -28,6 +28,7 @@ import {
   Session,
   BaseRelease,
 } from "./types";
+import { ReactNativePackageInfo } from "./types/rest-definitions";
 
 const packageJson = require("../../package.json");
 
@@ -370,6 +371,62 @@ class AccountManager {
             }
           });
       });
+    });
+  }
+
+  public releaseNative(
+    appName: string,
+    deploymentName: string,
+    filePath: string,
+    updateMetadata: ReactNativePackageInfo,
+    uploadProgressCallback?: (progress: number) => void
+  ): Promise<void> {
+    return Promise<void>((resolve, reject, notify) => {
+      const request: superagent.Request<any> = superagent.post(
+        this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/nativerelease`])
+      );
+
+      this.attachCredentials(request);
+
+      const file: any = fs.createReadStream(filePath);
+      request
+        .attach("package", file)
+        .field("packageInfo", JSON.stringify(updateMetadata))
+        .on("progress", (event: any) => {
+          if (uploadProgressCallback && event && event.total > 0) {
+            const currentProgress: number = (event.loaded / event.total) * 100;
+            uploadProgressCallback(currentProgress);
+          }
+        })
+        .end((err: any, res: superagent.Response) => {
+          fs.unlinkSync(filePath);
+
+          if (err) {
+            reject(this.getCodePushError(err, res));
+            return;
+          }
+
+          if (res.ok) {
+            resolve(<void>null);
+          } else {
+            let body;
+            try {
+              body = JSON.parse(res.text);
+            } catch (err) {}
+
+            if (body) {
+              reject(<CodePushError>{
+                message: body.message,
+                statusCode: res && res.status,
+              });
+            } else {
+              reject(<CodePushError>{
+                message: res.text,
+                statusCode: res && res.status,
+              });
+            }
+          }
+        });
     });
   }
 
