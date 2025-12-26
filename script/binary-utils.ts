@@ -6,8 +6,46 @@ import { hashFile } from "./hash-utils";
 import * as os from "os";
 import * as Q from "q";
 import * as yazl from "yazl";
+import { readFile } from "node:fs/promises";
 
-import Promise = Q.Promise;
+export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
+  const assetsFolder = path.join(extractFolder, "assets");
+  if (!fs.existsSync(assetsFolder)) {
+    throw new Error("Invalid APK structure: assets folder not found.");
+  }
+
+  const codepushMetadata = path.join(assetsFolder, "CodePushMetadata");
+
+  let fileHashes: { [key: string]: string } = {};
+  if (fs.existsSync(codepushMetadata)) {
+    fileHashes = await takeHashesFromMetadata(codepushMetadata);
+  } else {
+    log(chalk.yellow(`\nWarning: CodepushMetadata file not found in APK. Check user version of SDK\n`));
+  }
+
+  // Get index.android.bundle from root of app folder
+  const mainJsBundlePath = path.join(assetsFolder, "index.android.bundle");
+  if (fs.existsSync(mainJsBundlePath)) {
+    // Copy bundle to output folder
+    const outputCodePushFolder = path.join(outputFolder, "CodePush");
+    fs.mkdirSync(outputCodePushFolder, { recursive: true });
+    const outputBundlePath = path.join(outputCodePushFolder, "index.android.bundle");
+    fs.copyFileSync(mainJsBundlePath, outputBundlePath);
+  } else {
+    throw new Error("index.android.bundle not found in APK root folder.");
+  }
+
+  // Save packageManifest.json
+  const manifestPath = path.join(outputFolder, "packageManifest.json");
+  fs.writeFileSync(manifestPath, JSON.stringify(fileHashes, null, 2));
+  log(chalk.cyan(`\nSaved packageManifest.json with ${Object.keys(fileHashes).length} entries.\n`));
+
+  // Create zip archive with packageManifest.json and bundle file
+  const zipPath = path.join(os.tmpdir(), `CodePushBinary-${Date.now()}.zip`);
+  await createZipArchive(outputFolder, zipPath, ["packageManifest.json", "CodePush/index.android.bundle"]);
+
+  return zipPath;
+}
 
 export async function extractMetadataFromIOS(extractFolder, outputFolder) {
   const payloadFolder = path.join(extractFolder, "Payload");
@@ -87,7 +125,20 @@ async function calculateHashesForDirectory(
   }
 }
 
-function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Promise<void> {
+
+type BinaryHashes = { [p: string]: string };
+
+async function takeHashesFromMetadata(metadataPath: string): Promise<BinaryHashes> {
+  const content = await readFile(metadataPath, "utf-8");
+  const metadata = JSON.parse(content);
+  if (!metadata || !metadata.manifest) {
+    throw new Error("Failed to take manifest from metadata file of APK");
+  }
+
+  return Object.fromEntries(metadata.manifest.map((item) => item.split(":")));
+}
+
+function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Q.Promise<void> {
   return Q.Promise<void>((resolve, reject) => {
     const zipFile = new yazl.ZipFile();
     const writeStream = fs.createWriteStream(zipPath);

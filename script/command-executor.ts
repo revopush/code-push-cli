@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { extractMetadataFromIOS } from "./binary-utils";
+import { extractMetadataFromAndroid, extractMetadataFromIOS } from "./binary-utils";
 
 const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
@@ -38,7 +38,7 @@ import {
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extract } from "./utils/file-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractIPA, extractAPK } from "./utils/file-utils";
 
 import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
@@ -1305,7 +1305,7 @@ export const runExpoExportEmbedCommand = async (
   const projectRoot = process.cwd();
   expoBundleArgs.push(projectRoot);
 
-  log("expoBundleArgs raw:" +  JSON.stringify(expoBundleArgs, null, 2));
+  log("expoBundleArgs raw:" + JSON.stringify(expoBundleArgs, null, 2));
 
   const expoBundleProcess = spawn("node", expoBundleArgs);
   log(`node ${expoBundleArgs.join(" ")}`);
@@ -1338,136 +1338,134 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
   const platform: string = (command.platform = command.platform.toLowerCase());
   const releaseCommand: cli.IReleaseReactCommand = <any>command;
 
-  return (
-    sdk
-      .getDeployment(command.appName, command.deploymentName)
-      .then(async () => {
-        switch (platform) {
-          case "android":
-          case "ios":
-            if (!bundleName) {
-              bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
-            }
-            break;
-
-          default:
-            throw new Error('Platform must be either "android" or "ios" for the "release-expo" command.');
-        }
-
-        releaseCommand.package = outputFolder;
-        releaseCommand.outputDir = outputFolder;
-        releaseCommand.bundleName = bundleName;
-
-        let projectName: string;
-
-        try {
-          const projectPackageJson: any = require(path.join(process.cwd(), "package.json"));
-          projectName = projectPackageJson.name;
-          if (!projectName) {
-            throw new Error('The "package.json" file in the CWD does not have the "name" field set.');
+  return sdk
+    .getDeployment(command.appName, command.deploymentName)
+    .then(async () => {
+      switch (platform) {
+        case "android":
+        case "ios":
+          if (!bundleName) {
+            bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
           }
+          break;
 
-          if (!projectPackageJson.dependencies["react-native"]) {
-            throw new Error("The project in the CWD is not a React Native project.");
-          }
-        } catch (error) {
-          throw new Error(
-            'Unable to find or read "package.json" in the CWD. The "release-expo" command must be executed in a React Native project folder.'
-          );
+        default:
+          throw new Error('Platform must be either "android" or "ios" for the "release-expo" command.');
+      }
+
+      releaseCommand.package = outputFolder;
+      releaseCommand.outputDir = outputFolder;
+      releaseCommand.bundleName = bundleName;
+
+      let projectName: string;
+
+      try {
+        const projectPackageJson: any = require(path.join(process.cwd(), "package.json"));
+        projectName = projectPackageJson.name;
+        if (!projectName) {
+          throw new Error('The "package.json" file in the CWD does not have the "name" field set.');
         }
 
-        // TODO: do we really need entryFile for expo?
-
-        // if (!entryFile) {
-        //   entryFile = `index.${platform}.js`;
-        //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
-        //     entryFile = "index.js";
-        //   }
-        //
-        //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
-        //     throw new Error(`Entry file "index.${platform}.js" or "index.js" does not exist.`);
-        //   }
-        // } else {
-        //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
-        //     throw new Error(`Entry file "${entryFile}" does not exist.`);
-        //   }
-        // }
-
-        const appVersionPromise: Promise<string> = command.appStoreVersion
-          ? Q(command.appStoreVersion)
-          : getReactNativeProjectAppVersion(command, projectName);
-
-        if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
-          await createEmptyTempReleaseFolder(sourcemapOutputFolder);
+        if (!projectPackageJson.dependencies["react-native"]) {
+          throw new Error("The project in the CWD is not a React Native project.");
         }
+      } catch (error) {
+        throw new Error(
+          'Unable to find or read "package.json" in the CWD. The "release-expo" command must be executed in a React Native project folder.'
+        );
+      }
 
-        return appVersionPromise;
-      })
-      .then((appVersion: string) => {
-        throwForInvalidSemverRange(appVersion);
-        releaseCommand.appStoreVersion = appVersion;
+      // TODO: do we really need entryFile for expo?
 
-        return createEmptyTempReleaseFolder(outputFolder);
-      })
-      .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
-      .then(async () => {
-        await runExpoExportEmbedCommand(
+      // if (!entryFile) {
+      //   entryFile = `index.${platform}.js`;
+      //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
+      //     entryFile = "index.js";
+      //   }
+      //
+      //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
+      //     throw new Error(`Entry file "index.${platform}.js" or "index.js" does not exist.`);
+      //   }
+      // } else {
+      //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
+      //     throw new Error(`Entry file "${entryFile}" does not exist.`);
+      //   }
+      // }
+
+      const appVersionPromise: Promise<string> = command.appStoreVersion
+        ? Q(command.appStoreVersion)
+        : getReactNativeProjectAppVersion(command, projectName);
+
+      if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
+        await createEmptyTempReleaseFolder(sourcemapOutputFolder);
+      }
+
+      return appVersionPromise;
+    })
+    .then((appVersion: string) => {
+      throwForInvalidSemverRange(appVersion);
+      releaseCommand.appStoreVersion = appVersion;
+
+      return createEmptyTempReleaseFolder(outputFolder);
+    })
+    .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
+    .then(async () => {
+      await runExpoExportEmbedCommand(
+        command,
+        bundleName,
+        command.development || false,
+        // entryFile,
+        outputFolder,
+        sourcemapOutputFolder,
+        platform,
+        command.extraBundlerOptions
+      );
+    })
+    .then(async () => {
+      const isHermes = await isHermesEnabled(command, platform);
+
+      if (isHermes) {
+        await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
+        const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+
+        log(chalk.cyan("\nRunning hermes compiler.\n"));
+        await runHermesEmitBinaryCommand(
           command,
           bundleName,
-          command.development || false,
-          // entryFile,
           outputFolder,
           sourcemapOutputFolder,
-          platform,
-          command.extraBundlerOptions
+          command.extraHermesFlags,
+          command.gradleFile,
+          baseBytecode
         );
-      })
-      .then(async () => {
-        const isHermes = await isHermesEnabled(command, platform);
+      }
+    })
+    .then(async () => {
+      if (command.privateKeyPath) {
+        log(chalk.cyan("\nSigning the bundle:\n"));
+        await sign(command.privateKeyPath, outputFolder);
+      } else {
+        console.log("private key was not provided");
+      }
+    })
+    .then(() => {
+      log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
+      return releaseReactNative(releaseCommand);
+    })
+    .then(async () => {
+      if (!command.outputDir) {
+        await deleteFolder(outputFolder);
+      }
 
-        if (isHermes) {
-          await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
-          const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+      if (!command.sourcemapOutput) {
+        await deleteFolder(sourcemapOutputFolder);
+      }
 
-          log(chalk.cyan("\nRunning hermes compiler.\n"));
-          await runHermesEmitBinaryCommand(
-            command,
-            bundleName,
-            outputFolder,
-            sourcemapOutputFolder,
-            command.extraHermesFlags,
-            command.gradleFile,
-            baseBytecode
-          );
-        }
-      })
-      .then(async () => {
-        if (command.privateKeyPath) {
-          log(chalk.cyan("\nSigning the bundle:\n"));
-          await sign(command.privateKeyPath, outputFolder);
-        } else {
-          console.log("private key was not provided");
-        }
-      })
-      .then(() => {
-        log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
-        return releaseReactNative(releaseCommand);
-      })
-      .then(async () => {
-        if (!command.outputDir) {
-          await deleteFolder(outputFolder);
-        }
-
-        if (!command.sourcemapOutput) {
-          await deleteFolder(sourcemapOutputFolder);
-        }
-
-        await deleteFolder(baseReleaseTmpFolder);
-      })
-      .catch(async (err: Error) => {
-        throw err;
-      })
-  );
+      await deleteFolder(baseReleaseTmpFolder);
+    })
+    .catch(async (err: Error) => {
+      throw err;
+    });
 };
 
 export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => {
@@ -1621,91 +1619,78 @@ export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void>
   const targetBinaryPath: string = command.targetBinary;
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const extractFolder: string = path.join(os.tmpdir(), "CodePushBinaryExtract");
-
   // Validate platform
   if (platform !== "ios" && platform !== "android") {
     throw new Error('Platform must be either "ios" or "android" for the "release-binary" command.');
   }
-
   // Validate target binary file exists
   if (!fileExists(targetBinaryPath)) {
     throw new Error(`Target binary file "${targetBinaryPath}" does not exist.`);
   }
-
   // Validate file extension matches platform
   if (platform === "ios" && !targetBinaryPath.toLowerCase().endsWith(".ipa")) {
-    throw new Error('For iOS platform, target binary must be an .ipa file.');
+    throw new Error("For iOS platform, target binary must be an .ipa file.");
   }
   if (platform === "android" && !targetBinaryPath.toLowerCase().endsWith(".apk")) {
-    throw new Error('For Android platform, target binary must be an .apk file.');
+    throw new Error("For Android platform, target binary must be an .apk file.");
   }
 
-  return (
-    sdk
-      .getDeployment(command.appName, command.deploymentName)
-      .then(async () => {
-        // Create output folders
+  return sdk
+    .getDeployment(command.appName, command.deploymentName)
+    .then(async () => {
+      try {
         await createEmptyTempReleaseFolder(outputFolder);
         await createEmptyTempReleaseFolder(extractFolder);
 
-        // Extract the binary file
-        log(chalk.cyan(`\nExtracting ${platform === "ios" ? "IPA" : "APK/ARR"} file:\n`));
-        await extract(targetBinaryPath, extractFolder);
-
         if (!bundleName) {
-          bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
+          bundleName = platform === "ios" ? "main.jsbundle" : `index.android.bundle`;
         }
+        let zipPath: string;
 
         if (platform === "ios") {
-
-          const zipPath = await extractMetadataFromIOS(extractFolder, outputFolder)
-
-          // Clean up extract folder
-          await deleteFolder(extractFolder);
-
-          // Use the zip file as package for release
-          const releaseCommand: cli.IReleaseReactCommand = {
-            type: cli.CommandType.release,
-            appName: command.appName,
-            deploymentName: command.deploymentName,
-            appStoreVersion: command.appStoreVersion || "1.0.0",
-            package: zipPath,
-            description: command.description,
-            disabled: command.disabled,
-            mandatory: command.mandatory,
-            rollout: command.rollout,
-            noDuplicateReleaseError: command.noDuplicateReleaseError,
-            platform: platform,
-            outputDir: outputFolder,
-            bundleName: bundleName
-          };
-
-          return releaseNative(releaseCommand).then(async () => {
-            // Clean up zip file
-            if (fs.existsSync(zipPath)) {
-              fs.unlinkSync(zipPath);
-            }
-
-            await deleteFolder(outputFolder);
-          });
+          log(chalk.cyan(`\nExtracting IPA file:\n`));
+          await extractIPA(targetBinaryPath, extractFolder);
+          zipPath = await extractMetadataFromIOS(extractFolder, outputFolder);
         } else {
-          // Android platform - similar logic but different structure
-          // APK structure is different, need to extract and find CodePush folder
-          // For now, throw error as Android structure needs to be defined
-          throw new Error("Android platform support for release-binary is not yet implemented.");
+          log(chalk.cyan(`\nExtracting APK file:\n`));
+          await extractAPK(targetBinaryPath, extractFolder);
+          zipPath = await extractMetadataFromAndroid(extractFolder, outputFolder);
         }
-      })
-      .catch(async (err: Error) => {
-        // Clean up on error
+
+        // Use the zip file as package for release
+        const releaseCommand: cli.IReleaseReactCommand = {
+          type: cli.CommandType.release,
+          appName: command.appName,
+          deploymentName: command.deploymentName,
+          appStoreVersion: command.appStoreVersion || "1.0.0", // TODO take from binary ('adbkit-apkreader' for android)
+          package: zipPath,
+          description: command.description,
+          disabled: command.disabled,
+          mandatory: command.mandatory,
+          rollout: command.rollout,
+          initial: command.initial,
+          noDuplicateReleaseError: command.noDuplicateReleaseError,
+          platform: platform,
+          outputDir: outputFolder,
+          bundleName: bundleName,
+        };
+
+        return releaseNative(releaseCommand).then(async () => {
+          // Clean up zip file
+          if (fs.existsSync(zipPath)) {
+            fs.unlinkSync(zipPath);
+          }
+        });
+      } finally {
         try {
           await deleteFolder(extractFolder);
           await deleteFolder(outputFolder);
-        } catch (cleanupErr) {
-          // Ignore cleanup errors
-        }
-        throw err;
-      })
-  );
+        } catch (ignored) {}
+      }
+    })
+    .catch(async (err: Error) => {
+      throw err;
+    });
 };
 
 const releaseReactNative = (command: cli.IReleaseReactCommand): Promise<void> => {
@@ -1755,8 +1740,8 @@ const doRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, upda
   return sdk
     .isAuthenticated(true)
     .then((isAuth: boolean): Promise<void> => {
-      log('Release file path: ' + filePath)
-      log('Metadata: ' + JSON.stringify(updateMetadata))
+      log("Release file path: " + filePath);
+      log("Metadata: " + JSON.stringify(updateMetadata));
       return sdk.release(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
     })
     .then((): void => {
@@ -1775,9 +1760,11 @@ const doRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, upda
     .catch((err: CodePushError) => releaseErrorHandler(err, command));
 };
 
-
-const doNativeRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, updateMetadata: ReactNativePackageInfo): Promise<void> => {
-  log(command.package)
+const doNativeRelease = (
+  command: cli.IReleaseCommand | cli.IReleaseReactCommand,
+  updateMetadata: ReactNativePackageInfo
+): Promise<void> => {
+  log(command.package);
 
   throwForInvalidSemverRange(command.appStoreVersion);
 
@@ -1800,21 +1787,21 @@ const doNativeRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand
   return sdk
     .isAuthenticated(true)
     .then((): Promise<void> => {
-      log('Release file path: ' + filePath)
-      log('Metadata: ' + JSON.stringify(updateMetadata))
+      log("Release file path: " + filePath);
+      log("Metadata: " + JSON.stringify(updateMetadata));
       return sdk.releaseNative(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
     })
     .then((): void => {
       log(
         'Successfully released an update containing the "' +
-        command.package +
-        '" ' +
-        "directory" +
-        ' to the "' +
-        command.deploymentName +
-        '" deployment of the "' +
-        command.appName +
-        '" app.'
+          command.package +
+          '" ' +
+          "directory" +
+          ' to the "' +
+          command.deploymentName +
+          '" deployment of the "' +
+          command.appName +
+          '" app.'
       );
     })
     .catch((err: CodePushError) => releaseErrorHandler(err, command));

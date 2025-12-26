@@ -1544,6 +1544,11 @@ export function createCommand(): cli.ICommand {
           releaseBinaryCommand.targetBinary = arg3;
           releaseBinaryCommand.deploymentName = argv["deploymentName"] as any;
           releaseBinaryCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseBinaryCommand.initial = true;
+          releaseBinaryCommand.disabled = true;
+          releaseBinaryCommand.mandatory = false;
+          // TODO add support for releaseBinaryCommand.bundleName
+          // TODO add support for releaseBinaryCommand.outputDir
         }
         break;
 

@@ -3,6 +3,7 @@ import * as path from "path";
 import * as rimraf from "rimraf";
 import * as temp from "temp";
 import * as unzipper from "unzipper";
+import * as AdmZip from "adm-zip";
 
 import superagent = require("superagent");
 
@@ -67,9 +68,14 @@ export async function downloadBlob(url: string, folder: string, filename: string
   });
 }
 
-export async function extract(zipPath: string, extractTo: string) {
+export async function extractIPA(zipPath: string, extractTo: string) {
   const extractStream = unzipper.Extract({ path: extractTo });
   await new Promise<void>((resolve, reject) => {
     fs.createReadStream(zipPath).pipe(extractStream).on("close", resolve).on("error", reject);
   });
+}
+
+export async function extractAPK(zipPath: string, extractTo: string) {
+  const zip = new AdmZip(zipPath);
+  zip.extractAllTo(extractTo, true);
 }

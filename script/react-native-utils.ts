@@ -3,7 +3,7 @@ import * as chalk from "chalk";
 import * as path from "path";
 import * as childProcess from "child_process";
 import { coerce, compare, valid } from "semver";
-import { downloadBlob, extract, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
+import { downloadBlob, extractIPA, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
 import * as dotenv from "dotenv";
 import { DotenvParseOutput } from "dotenv";
 import * as cli from "../script/types/cli";
@@ -60,7 +60,7 @@ export async function takeHermesBaseBytecode(
   }
 
   const baseReleaseArchive = await downloadBlob(bundleBlobUrl, baseReleaseTmpFolder);
-  await extract(baseReleaseArchive, baseReleaseTmpFolder);
+  await extractIPA(baseReleaseArchive, baseReleaseTmpFolder);
   const baseReleaseBundle = path.join(baseReleaseTmpFolder, path.basename(outputFolder), bundleName);
 
   if (!fs.existsSync(baseReleaseBundle)) {

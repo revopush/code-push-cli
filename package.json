@@ -23,6 +23,7 @@
     "Revopush"
   ],
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "backslash": "^0.2.0",
     "chalk": "^4.1.2",
     "cli-table": "^0.3.11",
