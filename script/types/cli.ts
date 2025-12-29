@@ -37,7 +37,7 @@ export enum CommandType {
   sessionRemove,
   whoami,
   releaseExpo,
-  releaseBinary,
+  releaseNative,
 }
 
 export interface ICommand {
@@ -214,7 +214,7 @@ export interface IReleaseReactCommand extends IReleaseBaseCommand {
   extraBundlerOptions?: string[];
 }
 
-export interface IReleaseBinaryCommand extends IReleaseBaseCommand {
+export interface IReleaseNativeCommand extends IReleaseBaseCommand {
   platform: string;
   targetBinary: string;
   targetBinaryVersion?: string;

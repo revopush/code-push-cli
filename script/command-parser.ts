@@ -1058,17 +1058,17 @@ yargs
 
     addCommonConfiguration(yargs);
   })
-  .command("release-binary", "Release a binary update to an app deployment", (yargs: yargs.Argv) => {
+  .command("release-native", "Release a binary update to an app deployment", (yargs: yargs.Argv) => {
     yargs
-      .usage(USAGE_PREFIX + " release-binary <appName> <platform> <targetBinary> [options]")
+      .usage(USAGE_PREFIX + " release-native <appName> <platform> <targetBinary> [options]")
       .demand(/*count*/ 3, /*max*/ 3) // Require exactly three non-option arguments
       .example(
-        "release-binary MyApp ios ./app.ipa",
-        'Releases the iOS binary update from "./app.ipa" to the "MyApp" app\'s "Staging" deployment'
+        "release-native MyApp ios ./app.ipa",
+        'Releases the React Native iOS project from "./app.ipa" to the "MyApp" app\'s "Staging" deployment'
       )
       .example(
-        "release-binary MyApp android ./app.apk -d Production",
-        'Releases the Android binary update from "./app.apk" to the "MyApp" app\'s "Production" deployment'
+        "release-native MyApp android ./app.apk -d Production",
+        'Releases the React Native Android project from "./app.apk" to the "MyApp" app\'s "Production" deployment'
       )
       .option("deploymentName", {
         alias: "d",
@@ -1081,8 +1081,7 @@ yargs
         alias: "t",
         default: null,
         demand: false,
-        description:
-          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).',
+        description: "Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -1505,7 +1504,6 @@ export function createCommand(): cli.ICommand {
           releaseExpoCommand.appName = arg1;
           releaseExpoCommand.platform = arg2;
 
-          // тот же маппинг, что и у release-react:
           releaseExpoCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
           releaseExpoCommand.bundleName = argv["bundleName"] as any;
           releaseExpoCommand.deploymentName = argv["deploymentName"] as any;
@@ -1533,11 +1531,11 @@ export function createCommand(): cli.ICommand {
         }
         break;
 
-      case "release-binary":
+      case "release-native":
         if (arg1 && arg2 && arg3) {
-          cmd = { type: cli.CommandType.releaseBinary };
+          cmd = { type: cli.CommandType.releaseNative };
 
-          const releaseBinaryCommand = <cli.IReleaseBinaryCommand>cmd;
+          const releaseBinaryCommand = <cli.IReleaseNativeCommand>cmd;
 
           releaseBinaryCommand.appName = arg1;
           releaseBinaryCommand.platform = arg2;

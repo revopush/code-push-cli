@@ -561,8 +561,8 @@ export function execute(command: cli.ICommand) {
       case cli.CommandType.releaseExpo:
         return releaseExpo(<cli.IReleaseReactCommand>command);
 
-      case cli.CommandType.releaseBinary:
-        return releaseBinary(<cli.IReleaseBinaryCommand>command);
+      case cli.CommandType.releaseNative:
+        return releaseNative(<cli.IReleaseNativeCommand>command);
 
       case cli.CommandType.rollback:
         return rollback(<cli.IRollbackCommand>command);
@@ -1233,22 +1233,6 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
   return doRelease(command, updateMetadata);
 };
 
-export const releaseNative = (command: cli.IReleaseReactCommand): Promise<void> => {
-  // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
-  const updateMetadata: ReactNativePackageInfo = {
-    description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
-    isDisabled: command.initial ? true : command.disabled,
-    isMandatory: command.initial ? false : command.mandatory,
-    isInitial: command.initial,
-    bundleName: command.bundleName,
-    outputDir: command.outputDir,
-    rollout: command.initial ? undefined : command.rollout,
-    appVersion: command.appStoreVersion,
-  };
-
-  return doNativeRelease(command, updateMetadata);
-};
-
 export const runExpoExportEmbedCommand = async (
   command: cli.IReleaseReactCommand,
   bundleName: string,
@@ -1614,7 +1598,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   );
 };
 
-export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void> => {
+export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void> => {
   const platform: string = command.platform.toLowerCase();
   let bundleName: string = command.bundleName;
   const targetBinaryPath: string = command.targetBinary;
@@ -1622,7 +1606,7 @@ export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void>
   const extractFolder: string = path.join(os.tmpdir(), "CodePushBinaryExtract");
   // Validate platform
   if (platform !== "ios" && platform !== "android") {
-    throw new Error('Platform must be either "ios" or "android" for the "release-binary" command.');
+    throw new Error('Platform must be either "ios" or "android" for the "release-native" command.');
   }
   // Validate target binary file exists
   if (!fileExists(targetBinaryPath)) {
@@ -1683,7 +1667,18 @@ export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void>
           package: metadataZip,
         };
 
-        return releaseNative(releaseCommand).then(async () => {
+        const updateMetadata: ReactNativePackageInfo = {
+          description: releaseCommand.initial ? `Zero release for v${releaseCommand.appStoreVersion}` : releaseCommand.description,
+          isDisabled: releaseCommand.initial ? true : releaseCommand.disabled,
+          isMandatory: releaseCommand.initial ? false : releaseCommand.mandatory,
+          isInitial: releaseCommand.initial,
+          bundleName: releaseCommand.bundleName,
+          outputDir: releaseCommand.outputDir,
+          rollout: releaseCommand.initial ? undefined : releaseCommand.rollout,
+          appVersion: releaseCommand.appStoreVersion,
+        };
+
+        return doNativeRelease(releaseCommand, updateMetadata).then(async () => {
           // Clean up zip file
           if (fs.existsSync(releaseCommandPartial.package)) {
             fs.unlinkSync(releaseCommandPartial.package);
@@ -1772,8 +1767,6 @@ const doNativeRelease = (
   command: cli.IReleaseCommand | cli.IReleaseReactCommand,
   updateMetadata: ReactNativePackageInfo
 ): Promise<void> => {
-  log(command.package);
-
   throwForInvalidSemverRange(command.appStoreVersion);
 
   const filePath: string = command.package;
