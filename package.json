@@ -23,6 +23,7 @@
     "Revopush"
   ],
   "dependencies": {
+    "@devicefarmer/adbkit-apkreader": "^3.2.4",
     "adm-zip": "^0.5.16",
     "backslash": "^0.2.0",
     "chalk": "^4.1.2",

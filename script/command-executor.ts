@@ -14,6 +14,7 @@ import * as Q from "q";
 import * as semver from "semver";
 import * as cli from "../script/types/cli";
 import sign from "./sign";
+const ApkReader = require("@devicefarmer/adbkit-apkreader");
 import {
   AccessKey,
   Account,
@@ -1645,25 +1646,31 @@ export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void>
         if (!bundleName) {
           bundleName = platform === "ios" ? "main.jsbundle" : `index.android.bundle`;
         }
-        let zipPath: string;
+        let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
 
         if (platform === "ios") {
           log(chalk.cyan(`\nExtracting IPA file:\n`));
           await extractIPA(targetBinaryPath, extractFolder);
-          zipPath = await extractMetadataFromIOS(extractFolder, outputFolder);
+          const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
+          // TODO  extract version here
+          releaseCommandPartial = { package: metadataZip };
         } else {
           log(chalk.cyan(`\nExtracting APK file:\n`));
           await extractAPK(targetBinaryPath, extractFolder);
-          zipPath = await extractMetadataFromAndroid(extractFolder, outputFolder);
+
+          const reader = await ApkReader.open(targetBinaryPath);
+          const { versionName: appStoreVersion } = await reader.readManifest();
+          const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
+          releaseCommandPartial = { package: metadataZip, appStoreVersion };
         }
 
+        const { package: metadataZip, appStoreVersion } = releaseCommandPartial;
         // Use the zip file as package for release
         const releaseCommand: cli.IReleaseReactCommand = {
           type: cli.CommandType.release,
           appName: command.appName,
           deploymentName: command.deploymentName,
-          appStoreVersion: command.appStoreVersion || "1.0.0", // TODO take from binary ('adbkit-apkreader' for android)
-          package: zipPath,
+          appStoreVersion: command.appStoreVersion || appStoreVersion,
           description: command.description,
           disabled: command.disabled,
           mandatory: command.mandatory,
@@ -1673,12 +1680,13 @@ export const releaseBinary = (command: cli.IReleaseBinaryCommand): Promise<void>
           platform: platform,
           outputDir: outputFolder,
           bundleName: bundleName,
+          package: metadataZip,
         };
 
         return releaseNative(releaseCommand).then(async () => {
           // Clean up zip file
-          if (fs.existsSync(zipPath)) {
-            fs.unlinkSync(zipPath);
+          if (fs.existsSync(releaseCommandPartial.package)) {
+            fs.unlinkSync(releaseCommandPartial.package);
           }
         });
       } finally {
