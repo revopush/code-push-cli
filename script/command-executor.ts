@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { extractMetadataFromAndroid, extractMetadataFromIOS } from "./binary-utils";
+import { extractMetadataFromAndroid, extractMetadataFromIOS, getIosVersion } from "./binary-utils";
 
 const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
@@ -1636,10 +1636,10 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
           log(chalk.cyan(`\nExtracting IPA file:\n`));
           await extractIPA(targetBinaryPath, extractFolder);
           const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
-          // TODO  extract version here
-          releaseCommandPartial = { package: metadataZip };
+          const buildVersion = await getIosVersion(extractFolder)
+          releaseCommandPartial = { package: metadataZip, appStoreVersion: buildVersion?.version };
         } else {
-          log(chalk.cyan(`\nExtracting APK file:\n`));
+          log(chalk.cyan(`\nExtracting APK/ARR file:\n`));
           await extractAPK(targetBinaryPath, extractFolder);
 
           const reader = await ApkReader.open(targetBinaryPath);

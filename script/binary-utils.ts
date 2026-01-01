@@ -7,6 +7,8 @@ import * as os from "os";
 import * as Q from "q";
 import * as yazl from "yazl";
 import { readFile } from "node:fs/promises";
+import plist from "plist"
+import * as bplist from "bplist-parser";
 
 export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
   const assetsFolder = path.join(extractFolder, "assets");
@@ -73,7 +75,6 @@ export async function extractMetadataFromIOS(extractFolder, outputFolder) {
     log(chalk.yellow(`\nWarning: CodePush folder not found in IPA.\n`));
   }
 
-  // Get main.jsbundle from root of app folder
   const mainJsBundlePath = path.join(appFolder, "main.jsbundle");
   if (fs.existsSync(mainJsBundlePath)) {
     log(chalk.cyan(`\nFound main.jsbundle, calculating hash:\n`));
@@ -161,4 +162,48 @@ function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude:
 
     zipFile.end();
   });
+}
+
+function parseAnyPlistFile(plistPath: string): any {
+  const buf = fs.readFileSync(plistPath);
+
+  if (buf.slice(0, 6).toString("ascii") === "bplist") {
+    const arr = bplist.parseBuffer(buf);
+    if (!arr?.length) throw new Error("Empty binary plist");
+    return arr[0];
+  }
+
+  const xml = buf.toString("utf8");
+  return plist.parse(xml);
+}
+
+export async function getIosVersion(extractFolder: string) {
+  const payloadFolder = path.join(extractFolder, "Payload");
+  if (!fs.existsSync(payloadFolder)) {
+    throw new Error("Invalid IPA structure: Payload folder not found.");
+  }
+
+  const appFolders = fs.readdirSync(payloadFolder).filter((item) => {
+    const itemPath = path.join(payloadFolder, item);
+    return fs.statSync(itemPath).isDirectory() && item.endsWith(".app");
+  });
+
+  if (appFolders.length === 0) {
+    throw new Error("Invalid IPA structure: No .app folder found in Payload.");
+  }
+
+  const appFolder = path.join(payloadFolder, appFolders[0]);
+
+  const plistPath = path.join(appFolder, "Info.plist");
+
+  const data = parseAnyPlistFile(plistPath);
+
+  console.log('App Version (Short):', data.CFBundleShortVersionString);
+  console.log('Build Number:', data.CFBundleVersion);
+  console.log('Bundle ID:', data.CFBundleIdentifier);
+
+  return {
+    version: data.CFBundleShortVersionString,
+    build: data.CFBundleVersion
+  };
 }
