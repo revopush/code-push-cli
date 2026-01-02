@@ -1667,18 +1667,7 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
           package: metadataZip,
         };
 
-        const updateMetadata: ReactNativePackageInfo = {
-          description: releaseCommand.initial ? `Zero release for v${releaseCommand.appStoreVersion}` : releaseCommand.description,
-          isDisabled: releaseCommand.initial ? true : releaseCommand.disabled,
-          isMandatory: releaseCommand.initial ? false : releaseCommand.mandatory,
-          isInitial: releaseCommand.initial,
-          bundleName: releaseCommand.bundleName,
-          outputDir: releaseCommand.outputDir,
-          rollout: releaseCommand.initial ? undefined : releaseCommand.rollout,
-          appVersion: releaseCommand.appStoreVersion,
-        };
-
-        return doNativeRelease(releaseCommand, updateMetadata).then(async () => {
+        return doNativeRelease(releaseCommand).then(async () => {
           // Clean up zip file
           if (fs.existsSync(releaseCommandPartial.package)) {
             fs.unlinkSync(releaseCommandPartial.package);
@@ -1763,13 +1752,21 @@ const doRelease = (command: cli.IReleaseCommand | cli.IReleaseReactCommand, upda
     .catch((err: CodePushError) => releaseErrorHandler(err, command));
 };
 
-const doNativeRelease = (
-  command: cli.IReleaseCommand | cli.IReleaseReactCommand,
-  updateMetadata: ReactNativePackageInfo
-): Promise<void> => {
-  throwForInvalidSemverRange(command.appStoreVersion);
+const doNativeRelease = (releaseCommand: cli.IReleaseReactCommand): Promise<void> => {
+  throwForInvalidSemverRange(releaseCommand.appStoreVersion);
 
-  const filePath: string = command.package;
+  const filePath: string = releaseCommand.package;
+
+  const updateMetadata: ReactNativePackageInfo = {
+    description: releaseCommand.initial ? `Zero release for v${releaseCommand.appStoreVersion}` : releaseCommand.description,
+    isDisabled: releaseCommand.initial ? true : releaseCommand.disabled,
+    isMandatory: releaseCommand.initial ? false : releaseCommand.mandatory,
+    isInitial: releaseCommand.initial,
+    bundleName: releaseCommand.bundleName,
+    outputDir: releaseCommand.outputDir,
+    rollout: releaseCommand.initial ? undefined : releaseCommand.rollout,
+    appVersion: releaseCommand.appStoreVersion,
+  };
 
   let lastTotalProgress = 0;
 
@@ -1788,24 +1785,22 @@ const doNativeRelease = (
   return sdk
     .isAuthenticated(true)
     .then((): Promise<void> => {
-      log("Release file path: " + filePath);
-      log("Metadata: " + JSON.stringify(updateMetadata));
-      return sdk.releaseNative(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
+      return sdk.releaseNative(releaseCommand.appName, releaseCommand.deploymentName, filePath, updateMetadata, uploadProgress);
     })
     .then((): void => {
       log(
         'Successfully released an update containing the "' +
-          command.package +
+          releaseCommand.package +
           '" ' +
           "directory" +
           ' to the "' +
-          command.deploymentName +
+          releaseCommand.deploymentName +
           '" deployment of the "' +
-          command.appName +
+          releaseCommand.appName +
           '" app.'
       );
     })
-    .catch((err: CodePushError) => releaseErrorHandler(err, command));
+    .catch((err: CodePushError) => releaseErrorHandler(err, releaseCommand));
 };
 
 function rollback(command: cli.IRollbackCommand): Promise<void> {
