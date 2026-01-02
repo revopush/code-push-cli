@@ -22,7 +22,7 @@ export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
   if (fs.existsSync(codepushMetadata)) {
     fileHashes = await takeHashesFromMetadata(codepushMetadata);
   } else {
-    log(chalk.yellow(`\nWarning: CodepushMetadata file not found in APK. Check user version of SDK\n`));
+    log(chalk.yellow(`\nWarning: CodepushMetadata file not found in APK. Check used version of SDK\n`));
   }
 
   // Get index.android.bundle from root of app folder
