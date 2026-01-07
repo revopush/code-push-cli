@@ -433,6 +433,13 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
     if (fileExists(hermesEngine)) {
       return hermesEngine;
     }
+
+    // RN 0.83 hermes-compiler
+    const hermesCompiler = path.join(nodeModulesPath, "hermes-compiler", "hermesc", getHermesOSBin(), getHermesOSExe());
+    if (fileExists(hermesCompiler)) {
+      return hermesCompiler;
+    }
+
     return path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes");
   }
 }
