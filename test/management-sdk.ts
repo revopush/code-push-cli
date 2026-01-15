@@ -196,6 +196,15 @@ describe("Management SDK", () => {
     }, rejectHandler);
   });
 
+  it("getBaseBundle handles JSON response", (done: Mocha.Done) => {
+    mockReturn(JSON.stringify({ basebundle: { bundleBlobUrl: "https://test.test/release.zip" } }), 200, {});
+
+    manager.getBaseRelease("appName", "deploymentName", "1.2.3").done((obj: any) => {
+      assert.ok(obj);
+      done();
+    }, rejectHandler);
+  });
+
   it("getDeployments handles JSON response", (done: Mocha.Done) => {
     mockReturn(JSON.stringify({ deployments: [] }), 200, {});
 

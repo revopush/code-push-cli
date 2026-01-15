@@ -2,6 +2,10 @@ import * as fs from "fs";
 import * as path from "path";
 import * as rimraf from "rimraf";
 import * as temp from "temp";
+import * as unzipper from "unzipper";
+import * as AdmZip from "adm-zip";
+
+import superagent = require("superagent");
 
 export function isBinaryOrZip(path: string): boolean {
   return path.search(/\.zip$/i) !== -1 || path.search(/\.apk$/i) !== -1 || path.search(/\.ipa$/i) !== -1;
@@ -17,7 +21,7 @@ export function fileExists(file: string): boolean {
   } catch (e) {
     return false;
   }
-};
+}
 
 export function copyFileToTmpDir(filePath: string): string {
   if (!isDirectory(filePath)) {
@@ -43,4 +47,35 @@ export function fileDoesNotExistOrIsDirectory(path: string): boolean {
 export function normalizePath(filePath: string): string {
   //replace all backslashes coming from cli running on windows machines by slashes
   return filePath.replace(/\\/g, "/");
+}
+
+export async function downloadBlob(url: string, folder: string, filename: string = "blob.zip"): Promise<string> {
+  const destination = path.join(folder, filename);
+  const writeStream = fs.createWriteStream(destination);
+
+  return new Promise((resolve, reject) => {
+    writeStream.on("finish", () => resolve(destination));
+    writeStream.on("error", reject);
+
+    superagent
+      .get(url)
+      .ok((res) => res.status < 400)
+      .on("error", (err) => {
+        writeStream.destroy();
+        reject(err);
+      })
+      .pipe(writeStream);
+  });
+}
+
+export async function extractIPA(zipPath: string, extractTo: string) {
+  const extractStream = unzipper.Extract({ path: extractTo });
+  await new Promise<void>((resolve, reject) => {
+    fs.createReadStream(zipPath).pipe(extractStream).on("close", resolve).on("error", reject);
+  });
+}
+
+export async function extractAPK(zipPath: string, extractTo: string) {
+  const zip = new AdmZip(zipPath);
+  zip.extractAllTo(extractTo, true);
 }

@@ -26,7 +26,9 @@ import {
   PackageInfo,
   ServerAccessKey,
   Session,
+  BaseRelease,
 } from "./types";
+import { ReactNativePackageInfo } from "./types/rest-definitions";
 
 const packageJson = require("../../package.json");
 
@@ -273,6 +275,12 @@ class AccountManager {
     return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}`])).then((res: JsonResponse) => res.body.deployment);
   }
 
+  public getBaseRelease(appName: string, deploymentName: string, appVerison: string): Promise<BaseRelease> {
+    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/basebundle?appVersion=${appVerison}`])).then(
+      (res: JsonResponse) => res.body.basebundle
+    );
+  }
+
   public renameDeployment(appName: string, oldDeploymentName: string, newDeploymentName: string): Promise<void> {
     return this.patch(
       urlEncode([`/apps/${appName}/deployments/${oldDeploymentName}`]),
@@ -300,12 +308,10 @@ class AccountManager {
     appName: string,
     deploymentName: string,
     filePath: string,
-    targetBinaryVersion: string,
     updateMetadata: PackageInfo,
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
     return Promise<void>((resolve, reject, notify) => {
-      updateMetadata.appVersion = targetBinaryVersion;
       const request: superagent.Request<any> = superagent.post(
         this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`])
       );
@@ -365,6 +371,62 @@ class AccountManager {
             }
           });
       });
+    });
+  }
+
+  public releaseNative(
+    appName: string,
+    deploymentName: string,
+    filePath: string,
+    updateMetadata: ReactNativePackageInfo,
+    uploadProgressCallback?: (progress: number) => void
+  ): Promise<void> {
+    return Promise<void>((resolve, reject, notify) => {
+      const request: superagent.Request<any> = superagent.post(
+        this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/nativerelease`])
+      );
+
+      this.attachCredentials(request);
+
+      const file: any = fs.createReadStream(filePath);
+      request
+        .attach("package", file)
+        .field("packageInfo", JSON.stringify(updateMetadata))
+        .on("progress", (event: any) => {
+          if (uploadProgressCallback && event && event.total > 0) {
+            const currentProgress: number = (event.loaded / event.total) * 100;
+            uploadProgressCallback(currentProgress);
+          }
+        })
+        .end((err: any, res: superagent.Response) => {
+          fs.unlinkSync(filePath);
+
+          if (err) {
+            reject(this.getCodePushError(err, res));
+            return;
+          }
+
+          if (res.ok) {
+            resolve(<void>null);
+          } else {
+            let body;
+            try {
+              body = JSON.parse(res.text);
+            } catch (err) {}
+
+            if (body) {
+              reject(<CodePushError>{
+                message: body.message,
+                statusCode: res && res.status,
+              });
+            } else {
+              reject(<CodePushError>{
+                message: res.text,
+                statusCode: res && res.status,
+              });
+            }
+          }
+        });
     });
   }
 
@@ -569,7 +631,7 @@ class AccountManager {
 
     request.set("Accept", `application/vnd.code-push.v${AccountManager.API_VERSION}+json`);
     request.set("Authorization", `Bearer ${this._accessKey}`);
-    request.set("X-CodePush-SDK-Version", packageJson.version);
+    request.set("X-CodePush-SDK-Version", packageJson.version); // TODO get version differently without require("../../package.json");
   }
 }
 

@@ -36,6 +36,8 @@ export enum CommandType {
   sessionList,
   sessionRemove,
   whoami,
+  releaseExpo,
+  releaseNative,
 }
 
 export interface ICommand {
@@ -157,6 +159,7 @@ export interface IPackageInfo {
   disabled?: boolean;
   mandatory?: boolean;
   rollout?: number;
+  initial?: boolean;
 }
 
 export interface IPatchCommand extends ICommand, IPackageInfo {
@@ -191,6 +194,7 @@ export interface IReleaseCommand extends IReleaseBaseCommand {
 }
 
 export interface IReleaseReactCommand extends IReleaseBaseCommand {
+  package?: string;
   bundleName?: string;
   development?: boolean;
   entryFile?: string;
@@ -208,6 +212,14 @@ export interface IReleaseReactCommand extends IReleaseBaseCommand {
   xcodeTargetName?: string;
   buildConfigurationName?: string;
   extraBundlerOptions?: string[];
+}
+
+export interface IReleaseNativeCommand extends IReleaseBaseCommand {
+  platform: string;
+  targetBinary: string;
+  targetBinaryVersion?: string;
+  outputDir?: string;
+  bundleName?: string;
 }
 
 export interface IRollbackCommand extends ICommand {

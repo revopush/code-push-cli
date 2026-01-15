@@ -3,10 +3,11 @@ import * as chalk from "chalk";
 import * as path from "path";
 import * as childProcess from "child_process";
 import { coerce, compare, valid } from "semver";
-import { fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
+import { downloadBlob, extractIPA, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
 import * as dotenv from "dotenv";
 import { DotenvParseOutput } from "dotenv";
 import * as cli from "../script/types/cli";
+import { log, sdk } from "./command-executor";
 
 const g2js = require("gradle-to-js/lib/parser");
 
@@ -47,13 +48,37 @@ export async function getBundleSourceMapOutput(command: cli.IReleaseReactCommand
   return bundleSourceMapOutput;
 }
 
+export async function takeHermesBaseBytecode(
+  command: cli.IReleaseReactCommand,
+  baseReleaseTmpFolder: string,
+  outputFolder: string,
+  bundleName: string
+): Promise<string | null> {
+  const { bundleBlobUrl } = await sdk.getBaseRelease(command.appName, command.deploymentName, command.appStoreVersion);
+  if (!bundleBlobUrl) {
+    return null;
+  }
+
+  const baseReleaseArchive = await downloadBlob(bundleBlobUrl, baseReleaseTmpFolder);
+  await extractIPA(baseReleaseArchive, baseReleaseTmpFolder);
+  const baseReleaseBundle = path.join(baseReleaseTmpFolder, path.basename(outputFolder), bundleName);
+
+  if (!fs.existsSync(baseReleaseBundle)) {
+    log(chalk.cyan("\nNo base release available...\n"));
+    return null;
+  }
+
+  return baseReleaseBundle;
+}
+
 export async function runHermesEmitBinaryCommand(
   command: cli.IReleaseReactCommand,
   bundleName: string,
   outputFolder: string,
   sourcemapOutputFolder: string,
   extraHermesFlags: string[],
-  gradleFile: string
+  gradleFile: string,
+  baseBytecode?: string
 ): Promise<void> {
   const hermesArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -68,11 +93,17 @@ export async function runHermesEmitBinaryCommand(
     "-out",
     path.join(outputFolder, bundleName + ".hbc"),
     path.join(outputFolder, bundleName),
+    "-w",
+    "-max-diagnostic-width=80",
     ...extraHermesFlags,
   ]);
 
   if (sourcemapOutputFolder) {
     hermesArgs.push("-output-source-map");
+  }
+
+  if (baseBytecode) {
+    hermesArgs.push("-base-bytecode", baseBytecode);
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
@@ -402,6 +433,13 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
     if (fileExists(hermesEngine)) {
       return hermesEngine;
     }
+
+    // RN 0.83 hermes-compiler
+    const hermesCompiler = path.join(nodeModulesPath, "hermes-compiler", "hermesc", getHermesOSBin(), getHermesOSExe());
+    if (fileExists(hermesCompiler)) {
+      return hermesCompiler;
+    }
+
     return path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes");
   }
 }
@@ -416,7 +454,7 @@ function getComposeSourceMapsPath(): string {
 }
 
 function getNodeModulesPath(reactNativePath: string): string {
- const nodeModulesPath = path.dirname(reactNativePath)
+  const nodeModulesPath = path.dirname(reactNativePath);
   if (directoryExistsSync(nodeModulesPath)) {
     return nodeModulesPath;
   }
