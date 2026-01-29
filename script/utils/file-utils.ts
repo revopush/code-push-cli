@@ -79,3 +79,8 @@ export async function extractAPK(zipPath: string, extractTo: string) {
   const zip = new AdmZip(zipPath);
   zip.extractAllTo(extractTo, true);
 }
+
+export async function extractAAB(zipPath: string, extractTo: string) {
+  const zip = new AdmZip(zipPath);
+  zip.extractAllTo(extractTo, true);
+}

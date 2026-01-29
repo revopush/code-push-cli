@@ -24,6 +24,7 @@
   ],
   "dependencies": {
     "@devicefarmer/adbkit-apkreader": "^3.2.4",
+    "aab-parser": "^1.0.1",
     "adm-zip": "^0.5.16",
     "backslash": "^0.2.0",
     "bplist-parser": "^0.3.2",

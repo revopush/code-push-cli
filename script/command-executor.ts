@@ -15,6 +15,7 @@ import * as semver from "semver";
 import * as cli from "../script/types/cli";
 import sign from "./sign";
 const ApkReader = require("@devicefarmer/adbkit-apkreader");
+const aabParser = require("aab-parser");
 import {
   AccessKey,
   Account,
@@ -39,7 +40,7 @@ import {
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractIPA, extractAPK } from "./utils/file-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractIPA, extractAPK, extractAAB } from "./utils/file-utils";
 
 import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
@@ -1613,11 +1614,15 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
     throw new Error(`Target binary file "${targetBinaryPath}" does not exist.`);
   }
   // Validate file extension matches platform
-  if (platform === "ios" && !targetBinaryPath.toLowerCase().endsWith(".ipa")) {
+  const targetBinaryPathNormalised = targetBinaryPath.toLowerCase();
+  if (platform === "ios" && !targetBinaryPathNormalised.endsWith(".ipa")) {
     throw new Error("For iOS platform, target binary must be an .ipa file.");
   }
-  if (platform === "android" && !targetBinaryPath.toLowerCase().endsWith(".apk")) {
-    throw new Error("For Android platform, target binary must be an .apk file.");
+  if (
+    platform === "android" &&
+    !(targetBinaryPathNormalised.endsWith(".apk") || targetBinaryPathNormalised.endsWith(".aab"))
+  ) {
+    throw new Error("For Android platform, target binary must be an .apk or .aab file.");
   }
 
   return sdk
@@ -1636,16 +1641,27 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
           log(chalk.cyan(`\nExtracting IPA file:\n`));
           await extractIPA(targetBinaryPath, extractFolder);
           const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
-          const buildVersion = await getIosVersion(extractFolder)
+          const buildVersion = await getIosVersion(extractFolder);
           releaseCommandPartial = { package: metadataZip, appStoreVersion: buildVersion?.version };
         } else {
-          log(chalk.cyan(`\nExtracting APK/ARR file:\n`));
-          await extractAPK(targetBinaryPath, extractFolder);
+          if (targetBinaryPathNormalised.endsWith(".apk")) {
+            log(chalk.cyan(`\nExtracting APK/ARR file:\n`));
+            await extractAPK(targetBinaryPath, extractFolder);
 
-          const reader = await ApkReader.open(targetBinaryPath);
-          const { versionName: appStoreVersion } = await reader.readManifest();
-          const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
-          releaseCommandPartial = { package: metadataZip, appStoreVersion };
+            const reader = await ApkReader.open(targetBinaryPath);
+            const { versionName: appStoreVersion } = await reader.readManifest();
+            const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
+            releaseCommandPartial = { package: metadataZip, appStoreVersion };
+          } else if (targetBinaryPathNormalised.endsWith(".aab")) {
+            log(chalk.cyan(`\nExtracting AAB file:\n`));
+            await extractAAB(targetBinaryPath, extractFolder);
+            const { versionName: appStoreVersion } = await aabParser.parseAabManifest(targetBinaryPath);
+
+            const metadataZip = await extractMetadataFromAndroid(`${extractFolder}/base`, outputFolder); // base folder is nested in AAB
+            releaseCommandPartial = { package: metadataZip, appStoreVersion };
+          } else {
+            throw new Error("For Android platform, target binary must be an .apk or .aab file.");
+          }
         }
 
         const { package: metadataZip, appStoreVersion } = releaseCommandPartial;
