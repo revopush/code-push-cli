@@ -7,7 +7,7 @@ import * as os from "os";
 import * as Q from "q";
 import * as yazl from "yazl";
 import { readFile } from "node:fs/promises";
-import plist from "plist"
+import * as plist from "plist"
 import * as bplist from "bplist-parser";
 
 export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
