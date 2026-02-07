@@ -397,7 +397,7 @@ function getHermesOSBin(): string {
 }
 
 function getHermesOSExe(): string {
-  const react63orAbove = compare(coerce(getReactNativeVersion()).version, "0.63.0") !== -1;
+  const react63orAbove = compare(coerce(getReactNativeVersion())?.version, "0.63.0") !== -1;
   const hermesExecutableName = react63orAbove ? "hermesc" : "hermes";
   switch (process.platform) {
     case "win32":
@@ -484,24 +484,12 @@ export function directoryExistsSync(dirname: string): boolean {
 }
 
 export function getReactNativeVersion(): string {
-  let packageJsonFilename;
-  let projectPackageJson;
   try {
-    packageJsonFilename = path.join(process.cwd(), "package.json");
-    projectPackageJson = JSON.parse(fs.readFileSync(packageJsonFilename, "utf-8"));
+    const result = childProcess.spawnSync("node", ["--print", "require('react-native/package.json').version"]);
+    return result.stdout.toString().trim();
   } catch (error) {
     throw new Error(
-      `Unable to find or read "package.json" in the CWD. The "release-react" command must be executed in a React Native project folder.`
+      'Unable to resolve "react-native". Please make sure it is installed in your project (e.g. "npm install react-native").'
     );
   }
-
-  const projectName: string = projectPackageJson.name;
-  if (!projectName) {
-    throw new Error(`The "package.json" file in the CWD does not have the "name" field set.`);
-  }
-
-  return (
-    (projectPackageJson.dependencies && projectPackageJson.dependencies["react-native"]) ||
-    (projectPackageJson.devDependencies && projectPackageJson.devDependencies["react-native"])
-  );
 }
