@@ -32,6 +32,7 @@ import {
   UpdateMetrics,
 } from "../script/types";
 import {
+  buildAppVersion,
   getBundleSourceMapOutput,
   getMinifyParams,
   getReactNativePackagePath,
@@ -922,10 +923,7 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
 
     if (parsedPlist && parsedPlist.CFBundleShortVersionString) {
       if (isValidVersion(parsedPlist.CFBundleShortVersionString)) {
-        let appVersion: string = parsedPlist.CFBundleShortVersionString;
-        if (parsedPlist.CFBundleVersion) {
-          appVersion = `${appVersion}-${parsedPlist.CFBundleVersion}`;
-        }
+        const appVersion: string = buildAppVersion(parsedPlist.CFBundleShortVersionString, parsedPlist.CFBundleVersion);
         log(`Using the target binary version value "${appVersion}" from "${resolvedPlistFile}".\n`);
         return Q(appVersion);
       } else {
@@ -960,7 +958,7 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
       })
       .then((buildGradle: any) => {
         let versionName: string = null;
-        let versionCode: string = null;
+        let versionCode: number | null = null;
 
         // First 'if' statement was implemented as workaround for case
         // when 'build.gradle' file contains several 'android' nodes.
@@ -995,9 +993,7 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
         if (isValidVersion(appVersion)) {
           // The versionName property is a valid semver string,
           // so we can safely use that and move on.
-          if (versionCode) {
-            appVersion = `${appVersion}-${versionCode}`;
-          }
+          appVersion = buildAppVersion(appVersion, versionCode);
           log(`Using the target binary version value "${appVersion}" from "${buildGradlePath}".\n`);
           return appVersion;
         } else if (/^\d.*/.test(appVersion)) {
@@ -1044,9 +1040,7 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
           );
         }
 
-        if (versionCode) {
-          appVersion = `${appVersion}-${versionCode}`;
-        }
+        appVersion = buildAppVersion(appVersion, versionCode);
         log(`Using the target binary version value "${appVersion}" from the "${propertyName}" key in the "${propertiesFile}" file.\n`);
         return appVersion.toString();
       });
@@ -1120,7 +1114,7 @@ function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, projec
   }
 
   const currentProjectVersion = xcodeProj.getBuildProperty("CURRENT_PROJECT_VERSION", command.buildConfigurationName, command.xcodeTargetName);
-  const appVersion = currentProjectVersion ? `${marketingVersion}-${currentProjectVersion}` : marketingVersion;
+  const appVersion = buildAppVersion(marketingVersion, currentProjectVersion);
 
   console.log(`Using the target binary version value "${appVersion}" from "${resolvedPbxprojFile}".\n`);
 
@@ -1659,9 +1653,7 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
           await extractIPA(targetBinaryPath, extractFolder);
           const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
           const buildVersion = await getIosVersion(extractFolder);
-          const iosAppStoreVersion = buildVersion?.build
-            ? `${buildVersion.version}-${buildVersion.build}`
-            : buildVersion?.version;
+          const iosAppStoreVersion = buildAppVersion(buildVersion.version, buildVersion.build);
           releaseCommandPartial = { package: metadataZip, appStoreVersion: iosAppStoreVersion };
         } else {
           if (targetBinaryPathNormalised.endsWith(".apk")) {
@@ -1670,14 +1662,14 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
 
             const reader = await ApkReader.open(targetBinaryPath);
             const { versionName, versionCode } = await reader.readManifest();
-            const apkAppStoreVersion = versionCode ? `${versionName}-${versionCode}` : versionName;
+            const apkAppStoreVersion = buildAppVersion(versionName, versionCode);
             const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
             releaseCommandPartial = { package: metadataZip, appStoreVersion: apkAppStoreVersion };
           } else if (targetBinaryPathNormalised.endsWith(".aab")) {
             log(chalk.cyan(`\nExtracting AAB file:\n`));
             await extractAAB(targetBinaryPath, extractFolder);
             const { versionName, versionCode } = await aabParser.parseAabManifest(targetBinaryPath);
-            const aabAppStoreVersion = versionCode ? `${versionName}-${versionCode}` : versionName;
+            const aabAppStoreVersion = buildAppVersion(versionName, versionCode);
 
             const metadataZip = await extractMetadataFromAndroid(`${extractFolder}/base`, outputFolder); // base folder is nested in AAB
             releaseCommandPartial = { package: metadataZip, appStoreVersion: aabAppStoreVersion };

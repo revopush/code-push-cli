@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as chalk from "chalk";
 import * as path from "path";
 import * as childProcess from "child_process";
-import { coerce, compare, valid } from "semver";
+import { coerce, compare, gte, valid } from "semver";
 import { downloadBlob, extractIPA, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
 import * as dotenv from "dotenv";
 import { DotenvParseOutput } from "dotenv";
@@ -492,4 +492,34 @@ export function getReactNativeVersion(): string {
       'Unable to resolve "react-native". Please make sure it is installed in your project (e.g. "npm install react-native").'
     );
   }
+}
+
+function getRevopushCodePushVersion(): string | null {
+  try {
+    const result = childProcess.spawnSync("node", ["--print", "require('@revopush/react-native-code-push/package.json').version"]);
+    if (result.status !== 0 || !result.stdout) {
+      return null;
+    }
+    return result.stdout.toString().trim();
+  } catch {
+    return null;
+  }
+}
+
+const BUILD_NUMBER_MIN_VERSION = "2.0.0";
+
+function isBuildNumberSupported(): boolean {
+  const version = getRevopushCodePushVersion();
+  if (!version) {
+    return false;
+  }
+  const coerced = coerce(version);
+  return coerced ? gte(coerced, BUILD_NUMBER_MIN_VERSION) : false;
+}
+
+export function buildAppVersion(version: string, buildNumber: string | number | undefined): string {
+  if (buildNumber && isBuildNumberSupported()) {
+    return `${version}-${buildNumber}`;
+  }
+  return version;
 }
