@@ -184,6 +184,7 @@ export interface IRegisterCommand extends ICommand {
 export interface IReleaseBaseCommand extends ICommand, IPackageInfo {
   appName: string;
   appStoreVersion: string;
+  buildNumber?: string;
   deploymentName: string;
   noDuplicateReleaseError?: boolean;
   privateKeyPath?: string;

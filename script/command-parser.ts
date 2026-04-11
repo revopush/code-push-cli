@@ -666,6 +666,14 @@ yargs
         description: "Percentage of users this release should be available to",
         type: "string",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+        type: "string",
+      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return checkValidReleaseOptions(argv);
       });
@@ -860,6 +868,14 @@ yargs
         description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
         type: "array",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+        type: "string",
+      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return checkValidReleaseOptions(argv);
       });
@@ -1052,6 +1068,14 @@ yargs
         description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
         type: "array",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+        type: "string",
+      })
       .check((argv: any) => {
         return checkValidReleaseOptions(argv);
       });
@@ -1082,6 +1106,14 @@ yargs
         default: null,
         demand: false,
         description: "Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).",
+        type: "string",
+      })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -1450,6 +1482,7 @@ export function createCommand(): cli.ICommand {
           releaseCommand.appName = arg1;
           releaseCommand.package = arg2;
           releaseCommand.appStoreVersion = arg3;
+          releaseCommand.buildNumber = argv["buildNumber"] as any;
           releaseCommand.deploymentName = argv["deploymentName"] as any;
           releaseCommand.description = argv["description"] ? backslash(argv["description"]) : "";
           releaseCommand.disabled = argv["disabled"] as any;
@@ -1469,6 +1502,7 @@ export function createCommand(): cli.ICommand {
           releaseReactCommand.platform = arg2;
 
           releaseReactCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseReactCommand.buildNumber = argv["buildNumber"] as any;
           releaseReactCommand.bundleName = argv["bundleName"] as any;
           releaseReactCommand.deploymentName = argv["deploymentName"] as any;
           releaseReactCommand.disabled = argv["disabled"] as any;
@@ -1505,6 +1539,7 @@ export function createCommand(): cli.ICommand {
           releaseExpoCommand.platform = arg2;
 
           releaseExpoCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseExpoCommand.buildNumber = argv["buildNumber"] as any;
           releaseExpoCommand.bundleName = argv["bundleName"] as any;
           releaseExpoCommand.deploymentName = argv["deploymentName"] as any;
           releaseExpoCommand.disabled = argv["disabled"] as any;
@@ -1542,6 +1577,7 @@ export function createCommand(): cli.ICommand {
           releaseBinaryCommand.targetBinary = arg3;
           releaseBinaryCommand.deploymentName = argv["deploymentName"] as any;
           releaseBinaryCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseBinaryCommand.buildNumber = argv["buildNumber"] as any;
           releaseBinaryCommand.initial = true;
           releaseBinaryCommand.disabled = true;
           releaseBinaryCommand.mandatory = false;

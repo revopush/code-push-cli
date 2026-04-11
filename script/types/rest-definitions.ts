@@ -46,6 +46,7 @@ export interface DownloadReport {
 /*inout*/
 export interface PackageInfo {
   appVersion?: string;
+  buildNumber?: string;
   description?: string;
   isDisabled?: boolean;
   isMandatory?: boolean;
