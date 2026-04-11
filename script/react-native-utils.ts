@@ -493,33 +493,3 @@ export function getReactNativeVersion(): string {
     );
   }
 }
-
-function getRevopushCodePushVersion(): string | null {
-  try {
-    const result = childProcess.spawnSync("node", ["--print", "require('@revopush/react-native-code-push/package.json').version"]);
-    if (result.status !== 0 || !result.stdout) {
-      return null;
-    }
-    return result.stdout.toString().trim();
-  } catch {
-    return null;
-  }
-}
-
-const BUILD_NUMBER_MIN_VERSION = "2.0.0";
-
-function isBuildNumberSupported(): boolean {
-  const version = getRevopushCodePushVersion();
-  if (!version) {
-    return false;
-  }
-  const coerced = coerce(version);
-  return coerced ? gte(coerced, BUILD_NUMBER_MIN_VERSION) : false;
-}
-
-export function buildAppVersion(version: string, buildNumber: string | number | undefined): string {
-  if (buildNumber && isBuildNumberSupported()) {
-    return `${version}-${buildNumber}`;
-  }
-  return version;
-}
