@@ -671,7 +671,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, the release is a wildcard and is delivered to all clients regardless of their build number.",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -873,7 +873,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, the release is a wildcard and is delivered to all clients regardless of their build number.",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -1073,7 +1073,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, the release is a wildcard and is delivered to all clients regardless of their build number.",
         type: "string",
       })
       .check((argv: any) => {
@@ -1113,7 +1113,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Build number for this release. If omitted, auto-detected from \"android.defaultConfig.versionCode\" in build.gradle (Android) or \"CFBundleVersion\" in Info.plist (iOS). Override this when the value is set dynamically (e.g. on CI via environment variables).",
+          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, auto-detected from the target binary (IPA/APK/AAB). Override when the value is set dynamically (e.g. on CI).",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {

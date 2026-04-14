@@ -1374,11 +1374,14 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
       //   }
       // }
 
+      // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
+      // via --buildNumber. Auto-detection only applies to release-native where the binary
+      // build number is the natural targeting key.
       const versionInfoPromise: Promise<ProjectVersionInfo> = (command.appStoreVersion && command.buildNumber)
         ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
         : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
             appVersion: command.appStoreVersion || detected.appVersion,
-            buildNumber: command.buildNumber || detected.buildNumber,
+            buildNumber: command.buildNumber,
           }));
 
       if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
@@ -1519,11 +1522,14 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           }
         }
 
+        // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
+        // via --buildNumber. Auto-detection only applies to release-native where the binary
+        // build number is the natural targeting key.
         const versionInfoPromise: Promise<ProjectVersionInfo> = (command.appStoreVersion && command.buildNumber)
           ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
           : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
               appVersion: command.appStoreVersion || detected.appVersion,
-              buildNumber: command.buildNumber || detected.buildNumber,
+              buildNumber: command.buildNumber,
             }));
 
         if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
