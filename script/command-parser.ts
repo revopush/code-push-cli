@@ -520,6 +520,14 @@ yargs
         description: "Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).",
         type: "string",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: undefined,
+        demand: false,
+        description:
+          'Retarget this release to a specific native build (e.g. "100"). Pass an empty string ("") to reset to wildcard (all builds).',
+        type: "string",
+      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return isValidRollout(argv);
       });
@@ -671,7 +679,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, the release is a wildcard and is delivered to all clients regardless of their build number.",
+          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -873,7 +881,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, the release is a wildcard and is delivered to all clients regardless of their build number.",
+          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -1073,7 +1081,7 @@ yargs
         default: null,
         demand: false,
         description:
-          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, the release is a wildcard and is delivered to all clients regardless of their build number.",
+          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
         type: "string",
       })
       .check((argv: any) => {
@@ -1443,6 +1451,8 @@ export function createCommand(): cli.ICommand {
           patchCommand.mandatory = argv["mandatory"] as any;
           patchCommand.rollout = getRolloutValue(argv["rollout"] as any);
           patchCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          // undefined = not provided (skip); null = reset to wildcard (empty string ""); string = retarget to that build.
+          patchCommand.buildNumber = argv["buildNumber"] !== undefined ? (argv["buildNumber"] as string) || null : undefined;
         }
         break;
 

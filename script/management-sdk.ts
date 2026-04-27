@@ -275,8 +275,9 @@ class AccountManager {
     return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}`])).then((res: JsonResponse) => res.body.deployment);
   }
 
-  public getBaseRelease(appName: string, deploymentName: string, appVerison: string): Promise<BaseRelease> {
-    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/basebundle?appVersion=${appVerison}`])).then(
+  public getBaseRelease(appName: string, deploymentName: string, appVersion: string, buildNumber?: string): Promise<BaseRelease> {
+    const qs = buildNumber ? `?appVersion=${appVersion}&buildNumber=${buildNumber}` : `?appVersion=${appVersion}`;
+    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/basebundle${qs}`])).then(
       (res: JsonResponse) => res.body.basebundle
     );
   }

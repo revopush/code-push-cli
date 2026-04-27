@@ -54,7 +54,7 @@ export async function takeHermesBaseBytecode(
   outputFolder: string,
   bundleName: string
 ): Promise<string | null> {
-  const { bundleBlobUrl } = await sdk.getBaseRelease(command.appName, command.deploymentName, command.appStoreVersion);
+  const { bundleBlobUrl } = await sdk.getBaseRelease(command.appName, command.deploymentName, command.appStoreVersion, command.buildNumber);
   if (!bundleBlobUrl) {
     return null;
   }

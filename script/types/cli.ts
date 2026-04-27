@@ -165,6 +165,7 @@ export interface IPackageInfo {
 export interface IPatchCommand extends ICommand, IPackageInfo {
   appName: string;
   appStoreVersion?: string;
+  buildNumber?: string | null;
   deploymentName: string;
   label: string;
 }

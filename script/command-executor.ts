@@ -1198,21 +1198,25 @@ function patch(command: cli.IPatchCommand): Promise<void> {
     isMandatory: command.mandatory,
     isDisabled: command.disabled,
     rollout: command.rollout,
+    buildNumber: command.buildNumber, // undefined = skip, null = reset to wildcard, string = retarget
   };
 
-  for (const updateProperty in packageInfo) {
-    if ((<any>packageInfo)[updateProperty] !== null) {
-      return sdk.patchRelease(command.appName, command.deploymentName, command.label, packageInfo).then((): void => {
-        log(
-          `Successfully updated the "${command.label ? command.label : `latest`}" release of "${command.appName}" app's "${
-            command.deploymentName
-          }" deployment.`
-        );
-      });
-    }
+  // Standard fields use null as "not provided"; buildNumber uses undefined (null means reset).
+  // Check both to avoid treating an unset buildNumber (undefined) as a valid update.
+  const hasUpdate =
+    Object.values(packageInfo).some((v) => v !== null && v !== undefined) || command.buildNumber !== undefined;
+
+  if (!hasUpdate) {
+    throw new Error("At least one property must be specified to patch a release.");
   }
 
-  throw new Error("At least one property must be specified to patch a release.");
+  return sdk.patchRelease(command.appName, command.deploymentName, command.label, packageInfo).then((): void => {
+    log(
+      `Successfully updated the "${command.label ? command.label : `latest`}" release of "${command.appName}" app's "${
+        command.deploymentName
+      }" deployment.`
+    );
+  });
 }
 
 export const release = (command: cli.IReleaseCommand): Promise<void> => {
