@@ -245,11 +245,10 @@ export async function getMinifyParams(command: cli.IReleaseReactCommand) {
 }
 
 export async function isHermesEnabled(command: cli.IReleaseReactCommand, platform: string = command.platform.toLowerCase()) {
-  // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
-  const isAndroidHermesEnabled = await getAndroidHermesEnabled(command.gradleFile);
-  const isIOSHermesEnabled = getiOSHermesEnabled(command.podFile);
-
-  return command.useHermes || (platform === "android" && isAndroidHermesEnabled) || (platform === "ios" && isIOSHermesEnabled);
+  if (command.useHermes) return true;
+  if (platform === "android") return getAndroidHermesEnabled(command.gradleFile);
+  if (platform === "ios") return getiOSHermesEnabled(command.podFile);
+  return false;
 }
 
 function parseBuildGradleFile(gradleFile: string) {
@@ -257,11 +256,13 @@ function parseBuildGradleFile(gradleFile: string) {
   if (gradleFile) {
     buildGradlePath = gradleFile;
   }
-  if (fs.lstatSync(buildGradlePath).isDirectory()) {
-    buildGradlePath = path.join(buildGradlePath, "build.gradle");
-  }
 
-  if (fileDoesNotExistOrIsDirectory(buildGradlePath)) {
+  try {
+    if (fs.lstatSync(buildGradlePath).isDirectory()) {
+      buildGradlePath = path.join(buildGradlePath, "build.gradle");
+      fs.accessSync(buildGradlePath);
+    }
+  } catch {
     throw new Error(`Unable to find gradle file "${buildGradlePath}".`);
   }
 
@@ -345,12 +346,13 @@ async function getAndroidHermesEnabled(gradleFile: string): Promise<boolean> {
 }
 
 function getiOSHermesEnabled(podFile: string): boolean {
-  let podPath = path.join("ios", "Podfile");
-  if (podFile) {
-    podPath = podFile;
-  }
-  if (fileDoesNotExistOrIsDirectory(podPath)) {
+  const podPath = podFile || path.join("ios", "Podfile");
+  if (podFile && fileDoesNotExistOrIsDirectory(podPath)) {
     throw new Error(`Unable to find Podfile file "${podPath}".`);
+  } else if (!podFile && fileDoesNotExistOrIsDirectory(podPath)) {
+    // No Podfile at default path (e.g. Android-only project); fall back to RN version heuristic
+    const rnVersion = coerce(getReactNativeVersion())?.version;
+    return !!(rnVersion && compare(rnVersion, "0.70.0") >= 0);
   }
 
   try {
@@ -422,7 +424,12 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
     return bundledHermesEngine;
   }
 
-  const gradleHermesCommand = await getHermesCommandFromGradle(gradleFile);
+  let gradleHermesCommand = "";
+  try {
+    gradleHermesCommand = await getHermesCommandFromGradle(gradleFile);
+  } catch {
+    // Gradle files not present (e.g. iOS-only project); skip to node_modules fallback
+  }
   if (gradleHermesCommand) {
     return path.join("android", "app", gradleHermesCommand.replace("%OS-BIN%", getHermesOSBin()));
   } else {
