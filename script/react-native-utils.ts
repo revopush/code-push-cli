@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as chalk from "chalk";
 import * as path from "path";
 import * as childProcess from "child_process";
-import { coerce, compare, valid } from "semver";
+import { coerce, compare, gte, valid } from "semver";
 import { downloadBlob, extractIPA, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
 import * as dotenv from "dotenv";
 import { DotenvParseOutput } from "dotenv";
@@ -54,7 +54,7 @@ export async function takeHermesBaseBytecode(
   outputFolder: string,
   bundleName: string
 ): Promise<string | null> {
-  const { bundleBlobUrl } = await sdk.getBaseRelease(command.appName, command.deploymentName, command.appStoreVersion);
+  const { bundleBlobUrl } = await sdk.getBaseRelease(command.appName, command.deploymentName, command.appStoreVersion, command.buildNumber);
   if (!bundleBlobUrl) {
     return null;
   }

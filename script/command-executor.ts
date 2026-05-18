@@ -65,7 +65,6 @@ const xcode = require("xcode");
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
 const emailValidator = require("email-validator");
 const packageJson = require("../../package.json");
-const parseXml = Q.denodeify(require("xml2js").parseString);
 
 const properties = require("properties");
 
@@ -875,7 +874,12 @@ function getPackageMetricsString(obj: Package): string {
   return returnString;
 }
 
-function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, projectName: string): Promise<string> {
+interface ProjectVersionInfo {
+  appVersion?: string;
+  buildNumber?: string;
+}
+
+function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<ProjectVersionInfo> {
   log(chalk.cyan(`Detecting ${command.platform} app version:\n`));
 
   if (command.platform === "ios") {
@@ -894,7 +898,7 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
         command.plistFilePrefix += "-";
       }
 
-      const iOSDirectory: string = "ios";
+      const iOSDirectory = "ios";
       const plistFileName = `${command.plistFilePrefix || ""}Info.plist`;
 
       const knownLocations = [path.join(iOSDirectory, projectName, plistFileName), path.join(iOSDirectory, plistFileName)];
@@ -912,7 +916,7 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
 
     const plistContents = fs.readFileSync(resolvedPlistFile).toString();
 
-    let parsedPlist;
+    let parsedPlist: any;
 
     try {
       parsedPlist = plist.parse(plistContents);
@@ -920,22 +924,21 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
       throw new Error(`Unable to parse "${resolvedPlistFile}". Please ensure it is a well-formed plist file.`);
     }
 
-    if (parsedPlist && parsedPlist.CFBundleShortVersionString) {
-      if (isValidVersion(parsedPlist.CFBundleShortVersionString)) {
-        log(`Using the target binary version value "${parsedPlist.CFBundleShortVersionString}" from "${resolvedPlistFile}".\n`);
-        return Q(parsedPlist.CFBundleShortVersionString);
-      } else {
-        if (parsedPlist.CFBundleShortVersionString !== "$(MARKETING_VERSION)") {
-          throw new Error(
-            `The "CFBundleShortVersionString" key in the "${resolvedPlistFile}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
-          );
-        }
+    const rawShortVersion: string | undefined = parsedPlist.CFBundleShortVersionString;
+    const rawBundleVersion: string | undefined = parsedPlist.CFBundleVersion;
 
-        return getAppVersionFromXcodeProject(command, projectName);
-      }
-    } else {
-      throw new Error(`The "CFBundleShortVersionString" key doesn't exist within the "${resolvedPlistFile}" file.`);
+    // Both keys may reference Xcode build settings — delegate to the project file if either does
+    if (rawShortVersion === "$(MARKETING_VERSION)" || rawBundleVersion === "$(CURRENT_PROJECT_VERSION)") {
+      return getAppVersionFromXcodeProject(command, projectName);
     }
+
+    if (rawShortVersion && !isValidVersion(rawShortVersion)) {
+      throw new Error(
+        `The "CFBundleShortVersionString" key in the "${resolvedPlistFile}" file needs to specify a valid semver string (e.g. 1.3.2).`
+      );
+    }
+
+    return Q({ appVersion: rawShortVersion, buildNumber: rawBundleVersion });
   } else if (command.platform === "android") {
     let buildGradlePath: string = path.join("android", "app");
     if (command.gradleFile) {
@@ -955,119 +958,103 @@ function getReactNativeProjectAppVersion(command: cli.IReleaseReactCommand, proj
         throw new Error(`Unable to parse the "${buildGradlePath}" file. Please ensure it is a well-formed Gradle file.`);
       })
       .then((buildGradle: any) => {
-        let versionName: string = null;
+        const warnMissingBuildNumber = () => log(chalk.yellow(
+          `Warning: Unable to read "android.defaultConfig.versionCode" from "${buildGradlePath}". ` +
+            `This is expected if it is set dynamically (e.g. on CI). ` +
+            `Pass --buildNumber explicitly to include it in the release.`
+        ));
+
+        const knownLocations = [path.join("android", "app", "gradle.properties"), path.join("android", "gradle.properties")];
+
+        const parsePropertiesFile = (filePath: string): any | null => {
+          if (!fileExists(filePath)) return null;
+          try {
+            return properties.parse(fs.readFileSync(filePath).toString());
+          } catch (e) {
+            throw new Error(`Unable to parse "${filePath}". Please ensure it is a well-formed properties file.`);
+          }
+        };
+
+        let versionName: string | null = null;
+        let versionCode: string | number | null = null;
 
         // First 'if' statement was implemented as workaround for case
         // when 'build.gradle' file contains several 'android' nodes.
         // In this case 'buildGradle.android' prop represents array instead of object
         // due to parsing issue in 'g2js.parseFile' method.
         if (buildGradle.android instanceof Array) {
-          for (let i = 0; i < buildGradle.android.length; i++) {
-            const gradlePart = buildGradle.android[i];
-            if (gradlePart.defaultConfig && gradlePart.defaultConfig.versionName) {
-              versionName = gradlePart.defaultConfig.versionName;
-              break;
+          for (const gradlePart of buildGradle.android) {
+            if (gradlePart.defaultConfig) {
+              versionName = versionName ?? gradlePart.defaultConfig.versionName ?? null;
+              versionCode = versionCode ?? gradlePart.defaultConfig.versionCode ?? null;
+              if (versionName !== null && versionCode !== null) break;
             }
           }
-        } else if (buildGradle.android && buildGradle.android.defaultConfig && buildGradle.android.defaultConfig.versionName) {
-          versionName = buildGradle.android.defaultConfig.versionName;
-        } else {
+        } else if (buildGradle.android && buildGradle.android.defaultConfig) {
+          versionName = buildGradle.android.defaultConfig.versionName ?? null;
+          versionCode = buildGradle.android.defaultConfig.versionCode ?? null;
+        }
+
+        // versionCode may be a direct value or a property reference (non-numeric string)
+        const versionCodeProperty = typeof versionCode === "string" && !/^\d+$/.test(versionCode)
+          ? versionCode.replace("project.", "")
+          : null;
+        let buildNumber: string | undefined = versionCodeProperty ? undefined : versionCode?.toString();
+
+        if (!versionName) {
+          if (!buildNumber) warnMissingBuildNumber();
+          return { appVersion: undefined, buildNumber };
+        }
+
+        const rawAppVersion = versionName.replace(/"/g, "").trim();
+
+        if (/^\d/.test(rawAppVersion) && !isValidVersion(rawAppVersion)) {
+          // Starts with a digit but isn't valid semver — can't be a property reference.
           throw new Error(
-            `The "${buildGradlePath}" file doesn't specify a value for the "android.defaultConfig.versionName" property.`
+            `The "android.defaultConfig.versionName" property in the "${buildGradlePath}" file needs to specify a valid semver string (e.g. 1.3.2).`
           );
         }
 
-        if (typeof versionName !== "string") {
-          throw new Error(
-            `The "android.defaultConfig.versionName" property value in "${buildGradlePath}" is not a valid string. If this is expected, consider using the --targetBinaryVersion option to specify the value manually.`
-          );
-        }
+        // If versionName isn't a valid semver, treat it as a Gradle property reference
+        const versionNameProperty: string | null = isValidVersion(rawAppVersion) ? null : rawAppVersion.replace("project.", "");
+        let appVersion: string | undefined = versionNameProperty ? undefined : rawAppVersion;
 
-        let appVersion: string = versionName.replace(/"/g, "").trim();
-
-        if (isValidVersion(appVersion)) {
-          // The versionName property is a valid semver string,
-          // so we can safely use that and move on.
-          log(`Using the target binary version value "${appVersion}" from "${buildGradlePath}".\n`);
-          return appVersion;
-        } else if (/^\d.*/.test(appVersion)) {
-          // The versionName property isn't a valid semver string,
-          // but it starts with a number, and therefore, it can't
-          // be a valid Gradle property reference.
-          throw new Error(
-            `The "android.defaultConfig.versionName" property in the "${buildGradlePath}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
-          );
-        }
-
-        // The version property isn't a valid semver string
-        // so we assume it is a reference to a property variable.
-        const propertyName = appVersion.replace("project.", "");
-        const propertiesFileName = "gradle.properties";
-
-        const knownLocations = [path.join("android", "app", propertiesFileName), path.join("android", propertiesFileName)];
-
-        // Search for gradle properties across all `gradle.properties` files
-        let propertiesFile: string = null;
-        for (let i = 0; i < knownLocations.length; i++) {
-          propertiesFile = knownLocations[i];
-          if (fileExists(propertiesFile)) {
-            const propertiesContent: string = fs.readFileSync(propertiesFile).toString();
-            try {
-              const parsedProperties: any = properties.parse(propertiesContent);
-              appVersion = parsedProperties[propertyName];
-              if (appVersion) {
-                break;
-              }
-            } catch (e) {
-              throw new Error(`Unable to parse "${propertiesFile}". Please ensure it is a well-formed properties file.`);
+        let resolvedPropertiesFile: string | null = null;
+        if (versionNameProperty || versionCodeProperty) {
+          for (const propertiesFile of knownLocations) {
+            const parsed = parsePropertiesFile(propertiesFile);
+            if (!parsed) continue;
+            if (versionNameProperty && !appVersion) {
+              appVersion = parsed[versionNameProperty];
+              if (appVersion) resolvedPropertiesFile = propertiesFile;
             }
+            if (versionCodeProperty && !buildNumber) {
+              buildNumber = parsed[versionCodeProperty];
+            }
+            if ((!versionNameProperty || appVersion) && (!versionCodeProperty || buildNumber)) break;
+          }
+
+          if (versionNameProperty && !appVersion) {
+            throw new Error(`No property named "${versionNameProperty}" exists in the following files: ${knownLocations.join(", ")}.`);
+          }
+          if (versionNameProperty && !isValidVersion(appVersion)) {
+            throw new Error(
+              `The "${versionNameProperty}" property in the "${resolvedPropertiesFile}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
+            );
           }
         }
 
-        if (!appVersion) {
-          throw new Error(`No property named "${propertyName}" exists in the "${propertiesFile}" file.`);
-        }
+        if (!buildNumber) warnMissingBuildNumber();
 
-        if (!isValidVersion(appVersion)) {
-          throw new Error(
-            `The "${propertyName}" property in the "${propertiesFile}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
-          );
-        }
-
-        log(`Using the target binary version value "${appVersion}" from the "${propertyName}" key in the "${propertiesFile}" file.\n`);
-        return appVersion.toString();
-      });
-  } else {
-    const appxManifestFileName: string = "Package.appxmanifest";
-    let appxManifestContainingFolder: string;
-    let appxManifestContents: string;
-
-    try {
-      appxManifestContainingFolder = path.join("windows", projectName);
-      appxManifestContents = fs.readFileSync(path.join(appxManifestContainingFolder, "Package.appxmanifest")).toString();
-    } catch (err) {
-      throw new Error(`Unable to find or read "${appxManifestFileName}" in the "${path.join("windows", projectName)}" folder.`);
-    }
-
-    return parseXml(appxManifestContents)
-      .catch((err: any) => {
-        throw new Error(
-          `Unable to parse the "${path.join(appxManifestContainingFolder, appxManifestFileName)}" file, it could be malformed.`
-        );
-      })
-      .then((parsedAppxManifest: any) => {
-        try {
-          return parsedAppxManifest.Package.Identity[0]["$"].Version.match(/^\d+\.\d+\.\d+/)[0];
-        } catch (e) {
-          throw new Error(
-            `Unable to parse the package version from the "${path.join(appxManifestContainingFolder, appxManifestFileName)}" file.`
-          );
-        }
+        return { appVersion, buildNumber };
       });
   }
 }
 
-function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, projectName: string): Promise<string> {
+function getAppVersionFromXcodeProject(
+  command: cli.IReleaseReactCommand,
+  projectName: string
+): Promise<{ appVersion: string; buildNumber: string }> {
   const pbxprojFileName = "project.pbxproj";
   let resolvedPbxprojFile: string = command.xcodeProjectFile;
   if (resolvedPbxprojFile) {
@@ -1105,9 +1092,17 @@ function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, projec
       `The "MARKETING_VERSION" key in the "${resolvedPbxprojFile}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
     );
   }
-  console.log(`Using the target binary version value "${marketingVersion}" from "${resolvedPbxprojFile}".\n`);
 
-  return marketingVersion;
+  const currentProjectVersion = xcodeProj.getBuildProperty(
+    "CURRENT_PROJECT_VERSION",
+    command.buildConfigurationName,
+    command.xcodeTargetName
+  );
+  if (!currentProjectVersion) {
+    throw new Error(`The "CURRENT_PROJECT_VERSION" key doesn't exist in the "${resolvedPbxprojFile}" file.`);
+  }
+
+  return Q({ appVersion: marketingVersion, buildNumber: String(currentProjectVersion) });
 }
 
 function printJson(object: any): void {
@@ -1203,21 +1198,25 @@ function patch(command: cli.IPatchCommand): Promise<void> {
     isMandatory: command.mandatory,
     isDisabled: command.disabled,
     rollout: command.rollout,
+    buildNumber: command.buildNumber, // undefined = skip, null = reset to wildcard, string = retarget
   };
 
-  for (const updateProperty in packageInfo) {
-    if ((<any>packageInfo)[updateProperty] !== null) {
-      return sdk.patchRelease(command.appName, command.deploymentName, command.label, packageInfo).then((): void => {
-        log(
-          `Successfully updated the "${command.label ? command.label : `latest`}" release of "${command.appName}" app's "${
-            command.deploymentName
-          }" deployment.`
-        );
-      });
-    }
+  // Standard fields use null as "not provided"; buildNumber uses undefined (null means reset).
+  // Check both to avoid treating an unset buildNumber (undefined) as a valid update.
+  const hasUpdate =
+    Object.values(packageInfo).some((v) => v !== null && v !== undefined) || command.buildNumber !== undefined;
+
+  if (!hasUpdate) {
+    throw new Error("At least one property must be specified to patch a release.");
   }
 
-  throw new Error("At least one property must be specified to patch a release.");
+  return sdk.patchRelease(command.appName, command.deploymentName, command.label, packageInfo).then((): void => {
+    log(
+      `Successfully updated the "${command.label ? command.label : `latest`}" release of "${command.appName}" app's "${
+        command.deploymentName
+      }" deployment.`
+    );
+  });
 }
 
 export const release = (command: cli.IReleaseCommand): Promise<void> => {
@@ -1229,6 +1228,7 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
     isInitial: command.initial,
     rollout: command.initial ? undefined : command.rollout,
     appVersion: command.appStoreVersion,
+    buildNumber: command.buildNumber,
   };
 
   return doRelease(command, updateMetadata);
@@ -1378,19 +1378,26 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
       //   }
       // }
 
-      const appVersionPromise: Promise<string> = command.appStoreVersion
-        ? Q(command.appStoreVersion)
-        : getReactNativeProjectAppVersion(command, projectName);
+      // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
+      // via --buildNumber. Auto-detection only applies to release-native where the binary
+      // build number is the natural targeting key.
+      const versionInfoPromise: Promise<ProjectVersionInfo> = (command.appStoreVersion && command.buildNumber)
+        ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
+        : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
+            appVersion: command.appStoreVersion || detected.appVersion,
+            buildNumber: command.buildNumber,
+          }));
 
       if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
         await createEmptyTempReleaseFolder(sourcemapOutputFolder);
       }
 
-      return appVersionPromise;
+      return versionInfoPromise;
     })
-    .then((appVersion: string) => {
+    .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
       throwForInvalidSemverRange(appVersion);
       releaseCommand.appStoreVersion = appVersion;
+      releaseCommand.buildNumber = buildNumber;
 
       return createEmptyTempReleaseFolder(outputFolder);
     })
@@ -1519,20 +1526,27 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           }
         }
 
-        const appVersionPromise: Promise<string> = command.appStoreVersion
-          ? Q(command.appStoreVersion)
-          : getReactNativeProjectAppVersion(command, projectName);
+        // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
+        // via --buildNumber. Auto-detection only applies to release-native where the binary
+        // build number is the natural targeting key.
+        const versionInfoPromise: Promise<ProjectVersionInfo> = (command.appStoreVersion && command.buildNumber)
+          ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
+          : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
+              appVersion: command.appStoreVersion || detected.appVersion,
+              buildNumber: command.buildNumber,
+            }));
 
         if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
           // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
           await createEmptyTempReleaseFolder(sourcemapOutputFolder);
         }
 
-        return appVersionPromise;
+        return versionInfoPromise;
       })
-      .then((appVersion: string) => {
+      .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
         throwForInvalidSemverRange(appVersion);
         releaseCommand.appStoreVersion = appVersion;
+        releaseCommand.buildNumber = buildNumber;
 
         return createEmptyTempReleaseFolder(outputFolder);
       })
@@ -1618,10 +1632,7 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
   if (platform === "ios" && !targetBinaryPathNormalised.endsWith(".ipa")) {
     throw new Error("For iOS platform, target binary must be an .ipa file.");
   }
-  if (
-    platform === "android" &&
-    !(targetBinaryPathNormalised.endsWith(".apk") || targetBinaryPathNormalised.endsWith(".aab"))
-  ) {
+  if (platform === "android" && !(targetBinaryPathNormalised.endsWith(".apk") || targetBinaryPathNormalised.endsWith(".aab"))) {
     throw new Error("For Android platform, target binary must be an .apk or .aab file.");
   }
 
@@ -1642,35 +1653,48 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
           await extractIPA(targetBinaryPath, extractFolder);
           const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
           const buildVersion = await getIosVersion(extractFolder);
-          releaseCommandPartial = { package: metadataZip, appStoreVersion: buildVersion?.version };
+          releaseCommandPartial = {
+            package: metadataZip,
+            appStoreVersion: buildVersion?.version,
+            buildNumber: buildVersion?.build,
+          };
         } else {
           if (targetBinaryPathNormalised.endsWith(".apk")) {
             log(chalk.cyan(`\nExtracting APK/ARR file:\n`));
             await extractAPK(targetBinaryPath, extractFolder);
 
             const reader = await ApkReader.open(targetBinaryPath);
-            const { versionName: appStoreVersion } = await reader.readManifest();
+            const { versionName: appStoreVersion, versionCode } = await reader.readManifest();
             const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
-            releaseCommandPartial = { package: metadataZip, appStoreVersion };
+            releaseCommandPartial = {
+              package: metadataZip,
+              appStoreVersion,
+              buildNumber: versionCode?.toString(),
+            };
           } else if (targetBinaryPathNormalised.endsWith(".aab")) {
             log(chalk.cyan(`\nExtracting AAB file:\n`));
             await extractAAB(targetBinaryPath, extractFolder);
-            const { versionName: appStoreVersion } = await aabParser.parseAabManifest(targetBinaryPath);
+            const { versionName: appStoreVersion, versionCode } = await aabParser.parseAabManifest(targetBinaryPath);
 
             const metadataZip = await extractMetadataFromAndroid(`${extractFolder}/base`, outputFolder); // base folder is nested in AAB
-            releaseCommandPartial = { package: metadataZip, appStoreVersion };
+            releaseCommandPartial = {
+              package: metadataZip,
+              appStoreVersion,
+              buildNumber: versionCode?.toString(),
+            };
           } else {
             throw new Error("For Android platform, target binary must be an .apk or .aab file.");
           }
         }
 
-        const { package: metadataZip, appStoreVersion } = releaseCommandPartial;
+        const { package: metadataZip, appStoreVersion, buildNumber: detectedBuildNumber } = releaseCommandPartial;
         // Use the zip file as package for release
         const releaseCommand: cli.IReleaseReactCommand = {
           type: cli.CommandType.release,
           appName: command.appName,
           deploymentName: command.deploymentName,
           appStoreVersion: command.appStoreVersion || appStoreVersion,
+          buildNumber: command.buildNumber || detectedBuildNumber,
           description: command.description,
           disabled: command.disabled,
           mandatory: command.mandatory,
@@ -1712,6 +1736,7 @@ const releaseReactNative = (command: cli.IReleaseReactCommand): Promise<void> =>
     outputDir: command.outputDir,
     rollout: command.initial ? undefined : command.rollout,
     appVersion: command.appStoreVersion,
+    buildNumber: command.buildNumber,
   };
 
   return doRelease(command, updateMetadata);
@@ -1782,6 +1807,7 @@ const doNativeRelease = (releaseCommand: cli.IReleaseReactCommand): Promise<void
     outputDir: releaseCommand.outputDir,
     rollout: releaseCommand.initial ? undefined : releaseCommand.rollout,
     appVersion: releaseCommand.appStoreVersion,
+    buildNumber: releaseCommand.buildNumber,
   };
 
   let lastTotalProgress = 0;
@@ -1994,7 +2020,10 @@ function throwForInvalidEmail(email: string): void {
   }
 }
 
-function throwForInvalidSemverRange(semverRange: string): void {
+function throwForInvalidSemverRange(semverRange: string | undefined): void {
+  if (!semverRange) {
+    throw new Error(`Unable to determine the app version. Specify it using the --targetBinaryVersion option.`);
+  }
   if (semver.validRange(semverRange) === null) {
     throw new Error('Please use a semver-compliant target binary version range, for example "1.0.0", "*" or "^1.2.3".');
   }

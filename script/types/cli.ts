@@ -165,6 +165,7 @@ export interface IPackageInfo {
 export interface IPatchCommand extends ICommand, IPackageInfo {
   appName: string;
   appStoreVersion?: string;
+  buildNumber?: string | null;
   deploymentName: string;
   label: string;
 }
@@ -184,6 +185,7 @@ export interface IRegisterCommand extends ICommand {
 export interface IReleaseBaseCommand extends ICommand, IPackageInfo {
   appName: string;
   appStoreVersion: string;
+  buildNumber?: string;
   deploymentName: string;
   noDuplicateReleaseError?: boolean;
   privateKeyPath?: string;

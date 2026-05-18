@@ -520,6 +520,14 @@ yargs
         description: "Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).",
         type: "string",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: undefined,
+        demand: false,
+        description:
+          'Retarget this release to a specific native build (e.g. "100"). Pass an empty string ("") to reset to wildcard (all builds).',
+        type: "string",
+      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return isValidRollout(argv);
       });
@@ -664,6 +672,14 @@ yargs
         default: "100%",
         demand: false,
         description: "Percentage of users this release should be available to",
+        type: "string",
+      })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -860,6 +876,14 @@ yargs
         description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
         type: "array",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
+        type: "string",
+      })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
         return checkValidReleaseOptions(argv);
       });
@@ -1052,6 +1076,14 @@ yargs
         description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
         type: "array",
       })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
+        type: "string",
+      })
       .check((argv: any) => {
         return checkValidReleaseOptions(argv);
       });
@@ -1082,6 +1114,14 @@ yargs
         default: null,
         demand: false,
         description: "Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3).",
+        type: "string",
+      })
+      .option("buildNumber", {
+        alias: "bn",
+        default: null,
+        demand: false,
+        description:
+          "Targets this release to clients running a specific native binary build — CFBundleVersion on iOS or versionCode on Android. If omitted, auto-detected from the target binary (IPA/APK/AAB). Override when the value is set dynamically (e.g. on CI).",
         type: "string",
       })
       .check((argv: any, aliases: { [aliases: string]: string }): any => {
@@ -1411,6 +1451,8 @@ export function createCommand(): cli.ICommand {
           patchCommand.mandatory = argv["mandatory"] as any;
           patchCommand.rollout = getRolloutValue(argv["rollout"] as any);
           patchCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          // undefined = not provided (skip); null = reset to wildcard (empty string ""); string = retarget to that build.
+          patchCommand.buildNumber = argv["buildNumber"] !== undefined ? (argv["buildNumber"] as string) || null : undefined;
         }
         break;
 
@@ -1450,6 +1492,7 @@ export function createCommand(): cli.ICommand {
           releaseCommand.appName = arg1;
           releaseCommand.package = arg2;
           releaseCommand.appStoreVersion = arg3;
+          releaseCommand.buildNumber = argv["buildNumber"] as any;
           releaseCommand.deploymentName = argv["deploymentName"] as any;
           releaseCommand.description = argv["description"] ? backslash(argv["description"]) : "";
           releaseCommand.disabled = argv["disabled"] as any;
@@ -1469,6 +1512,7 @@ export function createCommand(): cli.ICommand {
           releaseReactCommand.platform = arg2;
 
           releaseReactCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseReactCommand.buildNumber = argv["buildNumber"] as any;
           releaseReactCommand.bundleName = argv["bundleName"] as any;
           releaseReactCommand.deploymentName = argv["deploymentName"] as any;
           releaseReactCommand.disabled = argv["disabled"] as any;
@@ -1505,6 +1549,7 @@ export function createCommand(): cli.ICommand {
           releaseExpoCommand.platform = arg2;
 
           releaseExpoCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseExpoCommand.buildNumber = argv["buildNumber"] as any;
           releaseExpoCommand.bundleName = argv["bundleName"] as any;
           releaseExpoCommand.deploymentName = argv["deploymentName"] as any;
           releaseExpoCommand.disabled = argv["disabled"] as any;
@@ -1542,6 +1587,7 @@ export function createCommand(): cli.ICommand {
           releaseBinaryCommand.targetBinary = arg3;
           releaseBinaryCommand.deploymentName = argv["deploymentName"] as any;
           releaseBinaryCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+          releaseBinaryCommand.buildNumber = argv["buildNumber"] as any;
           releaseBinaryCommand.initial = true;
           releaseBinaryCommand.disabled = true;
           releaseBinaryCommand.mandatory = false;
