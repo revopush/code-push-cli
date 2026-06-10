@@ -69,9 +69,21 @@ export async function downloadBlob(url: string, folder: string, filename: string
 }
 
 export async function extractIPA(zipPath: string, extractTo: string) {
-  const extractStream = unzipper.Extract({ path: extractTo });
   await new Promise<void>((resolve, reject) => {
-    fs.createReadStream(zipPath).pipe(extractStream).on("close", resolve).on("error", reject);
+    fs.createReadStream(zipPath)
+      .pipe(unzipper.Parse())
+      .on("entry", (entry) => {
+        const fullPath = path.join(extractTo, entry.path);
+        if (entry.type === "Directory") {
+          fs.mkdirSync(fullPath, { recursive: true });
+          entry.autodrain();
+        } else {
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+          entry.pipe(fs.createWriteStream(fullPath)).on("error", reject);
+        }
+      })
+      .on("finish", resolve)
+      .on("error", reject);
   });
 }
 
