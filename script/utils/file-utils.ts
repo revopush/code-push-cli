@@ -69,10 +69,7 @@ export async function downloadBlob(url: string, folder: string, filename: string
 }
 
 export async function extractIPA(zipPath: string, extractTo: string) {
-  const extractStream = unzipper.Extract({ path: extractTo });
-  await new Promise<void>((resolve, reject) => {
-    fs.createReadStream(zipPath).pipe(extractStream).on("close", resolve).on("error", reject);
-  });
+  await fs.createReadStream(zipPath).pipe(unzipper.Extract({ path: extractTo })).promise();
 }
 
 export async function extractAPK(zipPath: string, extractTo: string) {
