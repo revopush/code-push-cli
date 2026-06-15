@@ -1,6 +1,6 @@
 {
   "name": "@revopush/code-push-cli",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Management CLI for the CodePush service",
   "main": "./script/cli.js",
   "scripts": {

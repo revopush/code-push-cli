@@ -41,14 +41,13 @@ import {
   takeHermesBaseBytecode,
 } from "./react-native-utils";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractIPA, extractAPK, extractAAB } from "./utils/file-utils";
+import { getAndroidVersionInfo } from "./utils/gradle-utils";
 
 import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
 import Promise = Q.Promise;
 import { ReactNativePackageInfo } from "./types/rest-definitions";
 import { getExpoCliPath } from "./expo-utils";
-
-const g2js = require("gradle-to-js/lib/parser");
 
 const opener = require("opener");
 
@@ -65,8 +64,6 @@ const xcode = require("xcode");
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
 const emailValidator = require("email-validator");
 const packageJson = require("../../package.json");
-
-const properties = require("properties");
 
 const CLI_HEADERS: Headers = {
   "X-CodePush-CLI-Version": packageJson.version,
@@ -940,114 +937,7 @@ function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, pro
 
     return Q({ appVersion: rawShortVersion, buildNumber: rawBundleVersion });
   } else if (command.platform === "android") {
-    let buildGradlePath: string = path.join("android", "app");
-    if (command.gradleFile) {
-      buildGradlePath = command.gradleFile;
-    }
-    if (fs.lstatSync(buildGradlePath).isDirectory()) {
-      buildGradlePath = path.join(buildGradlePath, "build.gradle");
-    }
-
-    if (fileDoesNotExistOrIsDirectory(buildGradlePath)) {
-      throw new Error(`Unable to find gradle file "${buildGradlePath}".`);
-    }
-
-    return g2js
-      .parseFile(buildGradlePath)
-      .catch(() => {
-        throw new Error(`Unable to parse the "${buildGradlePath}" file. Please ensure it is a well-formed Gradle file.`);
-      })
-      .then((buildGradle: any) => {
-        const warnMissingBuildNumber = () => log(chalk.yellow(
-          `Warning: Unable to read "android.defaultConfig.versionCode" from "${buildGradlePath}". ` +
-            `This is expected if it is set dynamically (e.g. on CI). ` +
-            `Pass --buildNumber explicitly to include it in the release.`
-        ));
-
-        const knownLocations = [path.join("android", "app", "gradle.properties"), path.join("android", "gradle.properties")];
-
-        const parsePropertiesFile = (filePath: string): any | null => {
-          if (!fileExists(filePath)) return null;
-          try {
-            return properties.parse(fs.readFileSync(filePath).toString());
-          } catch (e) {
-            throw new Error(`Unable to parse "${filePath}". Please ensure it is a well-formed properties file.`);
-          }
-        };
-
-        let versionName: string | null = null;
-        let versionCode: string | number | null = null;
-
-        // First 'if' statement was implemented as workaround for case
-        // when 'build.gradle' file contains several 'android' nodes.
-        // In this case 'buildGradle.android' prop represents array instead of object
-        // due to parsing issue in 'g2js.parseFile' method.
-        if (buildGradle.android instanceof Array) {
-          for (const gradlePart of buildGradle.android) {
-            if (gradlePart.defaultConfig) {
-              versionName = versionName ?? gradlePart.defaultConfig.versionName ?? null;
-              versionCode = versionCode ?? gradlePart.defaultConfig.versionCode ?? null;
-              if (versionName !== null && versionCode !== null) break;
-            }
-          }
-        } else if (buildGradle.android && buildGradle.android.defaultConfig) {
-          versionName = buildGradle.android.defaultConfig.versionName ?? null;
-          versionCode = buildGradle.android.defaultConfig.versionCode ?? null;
-        }
-
-        // versionCode may be a direct value or a property reference (non-numeric string)
-        const versionCodeProperty = typeof versionCode === "string" && !/^\d+$/.test(versionCode)
-          ? versionCode.replace("project.", "")
-          : null;
-        let buildNumber: string | undefined = versionCodeProperty ? undefined : versionCode?.toString();
-
-        if (!versionName) {
-          if (!buildNumber) warnMissingBuildNumber();
-          return { appVersion: undefined, buildNumber };
-        }
-
-        const rawAppVersion = versionName.replace(/"/g, "").trim();
-
-        if (/^\d/.test(rawAppVersion) && !isValidVersion(rawAppVersion)) {
-          // Starts with a digit but isn't valid semver — can't be a property reference.
-          throw new Error(
-            `The "android.defaultConfig.versionName" property in the "${buildGradlePath}" file needs to specify a valid semver string (e.g. 1.3.2).`
-          );
-        }
-
-        // If versionName isn't a valid semver, treat it as a Gradle property reference
-        const versionNameProperty: string | null = isValidVersion(rawAppVersion) ? null : rawAppVersion.replace("project.", "");
-        let appVersion: string | undefined = versionNameProperty ? undefined : rawAppVersion;
-
-        let resolvedPropertiesFile: string | null = null;
-        if (versionNameProperty || versionCodeProperty) {
-          for (const propertiesFile of knownLocations) {
-            const parsed = parsePropertiesFile(propertiesFile);
-            if (!parsed) continue;
-            if (versionNameProperty && !appVersion) {
-              appVersion = parsed[versionNameProperty];
-              if (appVersion) resolvedPropertiesFile = propertiesFile;
-            }
-            if (versionCodeProperty && !buildNumber) {
-              buildNumber = parsed[versionCodeProperty];
-            }
-            if ((!versionNameProperty || appVersion) && (!versionCodeProperty || buildNumber)) break;
-          }
-
-          if (versionNameProperty && !appVersion) {
-            throw new Error(`No property named "${versionNameProperty}" exists in the following files: ${knownLocations.join(", ")}.`);
-          }
-          if (versionNameProperty && !isValidVersion(appVersion)) {
-            throw new Error(
-              `The "${versionNameProperty}" property in the "${resolvedPropertiesFile}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
-            );
-          }
-        }
-
-        if (!buildNumber) warnMissingBuildNumber();
-
-        return { appVersion, buildNumber };
-      });
+    return Q(getAndroidVersionInfo(command.gradleFile));
   }
 }
 
@@ -1381,10 +1271,10 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
       // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
       // via --buildNumber. Auto-detection only applies to release-native where the binary
       // build number is the natural targeting key.
-      const versionInfoPromise: Promise<ProjectVersionInfo> = (command.appStoreVersion && command.buildNumber)
+      const versionInfoPromise: Promise<ProjectVersionInfo> = command.appStoreVersion
         ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
         : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
-            appVersion: command.appStoreVersion || detected.appVersion,
+            appVersion: detected.appVersion,
             buildNumber: command.buildNumber,
           }));
 
@@ -1529,10 +1419,10 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
         // via --buildNumber. Auto-detection only applies to release-native where the binary
         // build number is the natural targeting key.
-        const versionInfoPromise: Promise<ProjectVersionInfo> = (command.appStoreVersion && command.buildNumber)
+        const versionInfoPromise: Promise<ProjectVersionInfo> = command.appStoreVersion
           ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
           : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
-              appVersion: command.appStoreVersion || detected.appVersion,
+              appVersion: detected.appVersion,
               buildNumber: command.buildNumber,
             }));
 
