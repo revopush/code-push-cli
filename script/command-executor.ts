@@ -40,7 +40,7 @@ import {
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractIPA, extractAPK, extractAAB } from "./utils/file-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractAPK, extractAAB } from "./utils/file-utils";
 import { getAndroidVersionInfo } from "./utils/gradle-utils";
 
 import AccountManager = require("./management-sdk");
@@ -1539,10 +1539,9 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
         let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
 
         if (platform === "ios") {
-          log(chalk.cyan(`\nExtracting IPA file:\n`));
-          await extractIPA(targetBinaryPath, extractFolder);
-          const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
-          const buildVersion = await getIosVersion(extractFolder);
+          log(chalk.cyan(`\nReading IPA file:\n`));
+          const metadataZip = await extractMetadataFromIOS(targetBinaryPath, outputFolder);
+          const buildVersion = await getIosVersion(targetBinaryPath);
           releaseCommandPartial = {
             package: metadataZip,
             appStoreVersion: buildVersion?.version,
