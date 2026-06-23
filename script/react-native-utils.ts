@@ -43,7 +43,7 @@ export async function getBundleSourceMapOutput(command: cli.IReleaseReactCommand
       break;
     }
     default:
-      throw new Error('Platform must be either "android", "ios" or "windows".');
+      throw new Error('Platform must be either "android" or "ios".');
   }
   return bundleSourceMapOutput;
 }
@@ -174,7 +174,7 @@ export async function runHermesEmitBinaryCommand(
             break;
           }
           default:
-            throw new Error('Platform must be either "android", "ios" or "windows".');
+            throw new Error('Platform must be either "android" or "ios".');
         }
       }
       const composeSourceMapsArgs = [
@@ -240,7 +240,7 @@ export async function getMinifyParams(command: cli.IReleaseReactCommand) {
       return isHermes ? ["--minify", false] : [];
     }
     default:
-      throw new Error('Platform must be either "android", "ios" or "windows".');
+      throw new Error('Platform must be either "android" or "ios".');
   }
 }
 
