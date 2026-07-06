@@ -15,7 +15,7 @@ import * as semver from "semver";
 import * as cli from "../script/types/cli";
 import sign from "./sign";
 const ApkReader = require("@devicefarmer/adbkit-apkreader");
-const aabParser = require("aab-parser");
+import { parseAabManifest } from "./utils/aab-utils";
 import {
   AccessKey,
   Account,
@@ -1564,7 +1564,7 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
           } else if (targetBinaryPathNormalised.endsWith(".aab")) {
             log(chalk.cyan(`\nExtracting AAB file:\n`));
             await extractAAB(targetBinaryPath, extractFolder);
-            const { versionName: appStoreVersion, versionCode } = await aabParser.parseAabManifest(targetBinaryPath);
+            const { versionName: appStoreVersion, versionCode } = await parseAabManifest(targetBinaryPath);
 
             const metadataZip = await extractMetadataFromAndroid(`${extractFolder}/base`, outputFolder); // base folder is nested in AAB
             releaseCommandPartial = {
