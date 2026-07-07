@@ -1673,5 +1673,7 @@ function isDefined(object: any): boolean {
 }
 
 function parseDurationMilliseconds(durationString: string): number {
-  return Math.floor(parseDuration(durationString));
+  // parse-duration v2 is ESM: the parser is `.default`, and `?? 0` restores v1's
+  // handling of unparseable input (v2 returns null instead of 0).
+  return Math.floor(parseDuration.default(durationString) ?? 0);
 }
