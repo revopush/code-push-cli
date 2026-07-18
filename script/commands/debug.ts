@@ -48,7 +48,7 @@ class AndroidDebugPlatform implements IDebugPlatform {
   private getNumberOfAvailableDevices(): number {
     const output = childProcess.execSync("adb devices").toString();
     const matches = output.match(/\b(device)\b/gim);
-    if (matches != null) {
+    if (matches !== null) {
       return matches.length;
     }
     return 0;
