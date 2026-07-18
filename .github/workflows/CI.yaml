@@ -26,12 +26,9 @@ jobs:
       - name: Build
         run: npm run build
 
-  # Informational only — not required for merge (repo has pre-existing lint
-  # errors). Remove `continue-on-error` once lint is clean to make it enforcing.
   lint:
     name: lint
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
