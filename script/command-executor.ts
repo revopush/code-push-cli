@@ -40,7 +40,7 @@ import {
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
-import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractIPA, extractAPK, extractAAB } from "./utils/file-utils";
+import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractAPK, extractAAB } from "./utils/file-utils";
 import { getAndroidVersionInfo } from "./utils/gradle-utils";
 
 import AccountManager = require("./management-sdk");
@@ -1205,69 +1205,93 @@ export const runExpoExportEmbedCommand = async (
   });
 };
 
+const REQUIRED_OUTPUT_DIR_NAME = "CodePush";
+
+interface ReactReleaseInputs {
+  platform: string;
+  bundleName: string;
+  entryFile: string;
+  projectName: string;
+}
+
+// Up-front validation for the React-style release flows (release-react / release-expo).
+// Throws on the first violation and returns the derived inputs. The semver-range check
+// lives in the chain since it needs the resolved app version.
+function validateReactReleaseCommand(
+  command: cli.IReleaseReactCommand,
+  options: { resolveEntryFile: boolean }
+): ReactReleaseInputs {
+  const { resolveEntryFile } = options;
+  const platform: string = (command.platform = command.platform.toLowerCase());
+
+  // Only android and ios are supported.
+  if (platform !== "android" && platform !== "ios") {
+    throw new Error('Platform must be either "android" or "ios".');
+  }
+
+  // Diff updates require the package to live under a "CodePush" folder.
+  if (command.outputDir && path.basename(command.outputDir) !== REQUIRED_OUTPUT_DIR_NAME) {
+    throw new Error(
+      `The "--outputDir" path must end with a folder named "${REQUIRED_OUTPUT_DIR_NAME}" ` +
+        `(e.g. "./build/${REQUIRED_OUTPUT_DIR_NAME}"). Received: "${command.outputDir}".`
+    );
+  }
+
+  // The command must run inside a React Native project.
+  let projectPackageJson: any;
+  try {
+    projectPackageJson = require(path.join(process.cwd(), "package.json"));
+  } catch (error) {
+    throw new Error('Unable to find or read "package.json" in the CWD. The command must be executed in a React Native project folder.');
+  }
+
+  const projectName: string = projectPackageJson.name;
+  if (!projectName) {
+    throw new Error('The "package.json" file in the CWD does not have the "name" field set.');
+  }
+  if (!projectPackageJson.dependencies?.["react-native"]) {
+    throw new Error("The project in the CWD is not a React Native project.");
+  }
+
+  // Resolve and validate the JS entry file (only flows that bundle locally need it).
+  let entryFile: string = command.entryFile;
+  if (resolveEntryFile) {
+    if (!entryFile) {
+      entryFile = `index.${platform}.js`;
+      if (fileDoesNotExistOrIsDirectory(entryFile)) {
+        entryFile = "index.js";
+      }
+      if (fileDoesNotExistOrIsDirectory(entryFile)) {
+        throw new Error(`Entry file "index.${platform}.js" or "index.js" does not exist.`);
+      }
+    } else if (fileDoesNotExistOrIsDirectory(entryFile)) {
+      throw new Error(`Entry file "${entryFile}" does not exist.`);
+    }
+  }
+
+  // Default the bundle name from the platform when the user did not pass one.
+  const bundleName: string = command.bundleName || (platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`);
+
+  return { platform, bundleName, entryFile, projectName };
+}
+
 export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> => {
-  let bundleName: string = command.bundleName;
-  // let entryFile: string = command.entryFile;
+  const { platform, bundleName, projectName } = validateReactReleaseCommand(command, {
+    resolveEntryFile: false,
+  });
+
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const baseReleaseTmpFolder: string = path.join(os.tmpdir(), "CodePushBaseRelease");
-  const platform: string = (command.platform = command.platform.toLowerCase());
+
   const releaseCommand: cli.IReleaseReactCommand = <any>command;
+  releaseCommand.package = outputFolder;
+  releaseCommand.outputDir = outputFolder;
+  releaseCommand.bundleName = bundleName;
 
   return sdk
     .getDeployment(command.appName, command.deploymentName)
     .then(async () => {
-      switch (platform) {
-        case "android":
-        case "ios":
-          if (!bundleName) {
-            bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
-          }
-          break;
-
-        default:
-          throw new Error('Platform must be either "android" or "ios" for the "release-expo" command.');
-      }
-
-      releaseCommand.package = outputFolder;
-      releaseCommand.outputDir = outputFolder;
-      releaseCommand.bundleName = bundleName;
-
-      let projectName: string;
-
-      try {
-        const projectPackageJson: any = require(path.join(process.cwd(), "package.json"));
-        projectName = projectPackageJson.name;
-        if (!projectName) {
-          throw new Error('The "package.json" file in the CWD does not have the "name" field set.');
-        }
-
-        if (!projectPackageJson.dependencies["react-native"]) {
-          throw new Error("The project in the CWD is not a React Native project.");
-        }
-      } catch (error) {
-        throw new Error(
-          'Unable to find or read "package.json" in the CWD. The "release-expo" command must be executed in a React Native project folder.'
-        );
-      }
-
-      // TODO: do we really need entryFile for expo?
-
-      // if (!entryFile) {
-      //   entryFile = `index.${platform}.js`;
-      //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
-      //     entryFile = "index.js";
-      //   }
-      //
-      //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
-      //     throw new Error(`Entry file "index.${platform}.js" or "index.js" does not exist.`);
-      //   }
-      // } else {
-      //   if (fileDoesNotExistOrIsDirectory(entryFile)) {
-      //     throw new Error(`Entry file "${entryFile}" does not exist.`);
-      //   }
-      // }
-
       // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
       // via --buildNumber. Auto-detection only applies to release-native where the binary
       // build number is the natural targeting key.
@@ -1352,70 +1376,25 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
 };
 
 export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => {
-  let bundleName: string = command.bundleName;
-  let entryFile: string = command.entryFile;
+  const { platform, bundleName, entryFile, projectName } = validateReactReleaseCommand(command, {
+    resolveEntryFile: true,
+  });
+
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const baseReleaseTmpFolder: string = path.join(os.tmpdir(), "CodePushBaseRelease");
-  const platform: string = (command.platform = command.platform.toLowerCase());
+
   const releaseCommand: cli.IReleaseReactCommand = <any>command;
-  // Check for app and deployment exist before releasing an update.
+  releaseCommand.package = outputFolder;
+  releaseCommand.outputDir = outputFolder;
+  releaseCommand.bundleName = bundleName;
+
+  // Check that the app and deployment exist before releasing an update.
   // This validation helps to save about 1 minute or more in case user has typed wrong app or deployment name.
   return (
     sdk
       .getDeployment(command.appName, command.deploymentName)
       .then(async () => {
-        switch (platform) {
-          case "android":
-          case "ios":
-          case "windows":
-            if (!bundleName) {
-              bundleName = platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`;
-            }
-
-            break;
-          default:
-            throw new Error('Platform must be either "android", "ios" or "windows".');
-        }
-
-        releaseCommand.package = outputFolder;
-        releaseCommand.outputDir = outputFolder;
-        releaseCommand.bundleName = bundleName;
-
-        let projectName: string;
-
-        try {
-          const projectPackageJson: any = require(path.join(process.cwd(), "package.json"));
-          projectName = projectPackageJson.name;
-          if (!projectName) {
-            throw new Error('The "package.json" file in the CWD does not have the "name" field set.');
-          }
-
-          if (!projectPackageJson.dependencies["react-native"]) {
-            throw new Error("The project in the CWD is not a React Native project.");
-          }
-        } catch (error) {
-          throw new Error(
-            'Unable to find or read "package.json" in the CWD. The "release-react" command must be executed in a React Native project folder.'
-          );
-        }
-
-        // TODO: check entry file detection
-        if (!entryFile) {
-          entryFile = `index.${platform}.js`;
-          if (fileDoesNotExistOrIsDirectory(entryFile)) {
-            entryFile = "index.js";
-          }
-
-          if (fileDoesNotExistOrIsDirectory(entryFile)) {
-            throw new Error(`Entry file "index.${platform}.js" or "index.js" does not exist.`);
-          }
-        } else {
-          if (fileDoesNotExistOrIsDirectory(entryFile)) {
-            throw new Error(`Entry file "${entryFile}" does not exist.`);
-          }
-        }
-
         // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
         // via --buildNumber. Auto-detection only applies to release-native where the binary
         // build number is the natural targeting key.
@@ -1539,10 +1518,9 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
         let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
 
         if (platform === "ios") {
-          log(chalk.cyan(`\nExtracting IPA file:\n`));
-          await extractIPA(targetBinaryPath, extractFolder);
-          const metadataZip = await extractMetadataFromIOS(extractFolder, outputFolder);
-          const buildVersion = await getIosVersion(extractFolder);
+          log(chalk.cyan(`\nReading IPA file:\n`));
+          const metadataZip = await extractMetadataFromIOS(targetBinaryPath, outputFolder);
+          const buildVersion = await getIosVersion(targetBinaryPath);
           releaseCommandPartial = {
             package: metadataZip,
             appStoreVersion: buildVersion?.version,

@@ -1,11 +1,12 @@
 import * as path from "path";
 import * as fs from "fs";
+import * as crypto from "crypto";
 import * as chalk from "chalk";
 import { log } from "./command-executor";
-import { hashFile } from "./hash-utils";
 import * as os from "os";
 import * as Q from "q";
 import * as yazl from "yazl";
+import * as unzipper from "unzipper";
 import { readFile } from "node:fs/promises";
 import * as plist from "plist"
 import * as bplist from "bplist-parser";
@@ -49,46 +50,43 @@ export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
   return zipPath;
 }
 
-export async function extractMetadataFromIOS(extractFolder, outputFolder) {
-  const payloadFolder = path.join(extractFolder, "Payload");
-  if (!fs.existsSync(payloadFolder)) {
-    throw new Error("Invalid IPA structure: Payload folder not found.");
-  }
+export async function extractMetadataFromIOS(ipaPath: string, outputFolder: string) {
+  const { files, appPrefix } = await openIPA(ipaPath);
 
-  const appFolders = fs.readdirSync(payloadFolder).filter((item) => {
-    const itemPath = path.join(payloadFolder, item);
-    return fs.statSync(itemPath).isDirectory() && item.endsWith(".app");
-  });
-
-  if (appFolders.length === 0) {
-    throw new Error("Invalid IPA structure: No .app folder found in Payload.");
-  }
-
-  const appFolder = path.join(payloadFolder, appFolders[0]);
-  const codePushFolder = path.join(appFolder, "assets");
+  const assetsPrefix = `${appPrefix}assets/`;
+  const bundlePath = `${appPrefix}main.jsbundle`;
 
   const fileHashes: { [key: string]: string } = {};
+  let bundleBuffer: Buffer | null = null;
 
-  if (fs.existsSync(codePushFolder)) {
-    await calculateHashesForDirectory(codePushFolder, appFolder, fileHashes);
-  } else {
-    log(chalk.yellow(`\nWarning: CodePush folder not found in IPA.\n`));
+  for (const entry of files) {
+    if (entry.type !== "File") continue;
+
+    if (entry.path === bundlePath) {
+      bundleBuffer = await entry.buffer();
+    } else if (entry.path.startsWith(assetsPrefix)) {
+      const relativePath = entry.path.slice(appPrefix.length); // e.g. assets/img/logo.png
+      const hash = sha256(await entry.buffer());
+      fileHashes[`CodePush/${relativePath}`] = hash;
+      log(chalk.gray(`  ${relativePath}:${hash.substring(0, 8)}...\n`));
+    }
   }
 
-  const mainJsBundlePath = path.join(appFolder, "main.jsbundle");
-  if (fs.existsSync(mainJsBundlePath)) {
-    log(chalk.cyan(`\nFound main.jsbundle, calculating hash:\n`));
-    const bundleHash = await hashFile(mainJsBundlePath);
-    fileHashes["CodePush/main.jsbundle"] = bundleHash;
-
-    // Copy bundle to output folder
-    const outputCodePushFolder = path.join(outputFolder, "CodePush");
-    fs.mkdirSync(outputCodePushFolder, { recursive: true });
-    const outputBundlePath = path.join(outputCodePushFolder, "main.jsbundle");
-    fs.copyFileSync(mainJsBundlePath, outputBundlePath);
-  } else {
-    throw new Error("main.jsbundle not found in IPA root folder.");
+  if (Object.keys(fileHashes).length === 0) {
+    log(chalk.yellow(`\nWarning: CodePush assets folder not found in IPA.\n`));
   }
+
+  if (!bundleBuffer) {
+    throw new Error("main.jsbundle not found in IPA app folder.");
+  }
+
+  log(chalk.cyan(`\nFound main.jsbundle, calculating hash:\n`));
+  fileHashes["CodePush/main.jsbundle"] = sha256(bundleBuffer);
+
+  // Write bundle to output folder (needed for the release package zip)
+  const outputCodePushFolder = path.join(outputFolder, "CodePush");
+  fs.mkdirSync(outputCodePushFolder, { recursive: true });
+  fs.writeFileSync(path.join(outputCodePushFolder, "main.jsbundle"), bundleBuffer);
 
   // Save packageManifest.json
   const manifestPath = path.join(outputFolder, "packageManifest.json");
@@ -102,28 +100,28 @@ export async function extractMetadataFromIOS(extractFolder, outputFolder) {
   return zipPath;
 }
 
-async function calculateHashesForDirectory(
-  directoryPath: string,
-  basePath: string,
-  fileHashes: { [key: string]: string }
-) {
-  const items = fs.readdirSync(directoryPath);
+function sha256(buffer: Buffer): string {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
 
-  for (const item of items) {
-    const itemPath = path.join(directoryPath, item);
-    const stat = fs.statSync(itemPath);
+// Open the IPA via its central directory (the authoritative entry index) instead of
+// streaming extraction, which is known to silently drop files. The count check guards
+// against a truncated/corrupt archive.
+async function openIPA(ipaPath: string): Promise<{ files: any[]; appPrefix: string }> {
+  const directory = await unzipper.Open.file(ipaPath);
 
-    if (stat.isDirectory()) {
-      await calculateHashesForDirectory(itemPath, basePath, fileHashes);
-    } else {
-      // Calculate relative path from basePath (app folder) to the file
-      const relativePath = path.relative(basePath, itemPath).replace(/\\/g, "/");
-      const hash = await hashFile(itemPath);
-      const hashKey = `CodePush/${relativePath}`
-      fileHashes[hashKey] = hash;
-      log(chalk.gray(`  ${relativePath}:${hash.substring(0, 8)}...\n`));
-    }
+  if (directory.files.length !== directory.numberOfRecords) {
+    throw new Error(
+      `Invalid IPA: central directory lists ${directory.numberOfRecords} entries but ${directory.files.length} were read. The file may be corrupt or truncated.`
+    );
   }
+
+  const appMatch = directory.files.map((f) => f.path.match(/^(Payload\/[^/]+\.app)\//)).find(Boolean);
+  if (!appMatch) {
+    throw new Error('Invalid IPA structure: no "Payload/*.app" folder found.');
+  }
+
+  return { files: directory.files, appPrefix: `${appMatch[1]}/` };
 }
 
 
@@ -164,46 +162,30 @@ function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude:
   });
 }
 
-function parseAnyPlistFile(plistPath: string): any {
-  const buf = fs.readFileSync(plistPath);
-
+function parsePlistBuffer(buf: Buffer): any {
   if (buf.slice(0, 6).toString("ascii") === "bplist") {
     const arr = bplist.parseBuffer(buf);
     if (!arr?.length) throw new Error("Empty binary plist");
     return arr[0];
   }
 
-  const xml = buf.toString("utf8");
-  return plist.parse(xml);
+  return plist.parse(buf.toString("utf8"));
 }
 
-export async function getIosVersion(extractFolder: string) {
-  const payloadFolder = path.join(extractFolder, "Payload");
-  if (!fs.existsSync(payloadFolder)) {
-    throw new Error("Invalid IPA structure: Payload folder not found.");
+export async function getIosVersion(ipaPath: string) {
+  const { files, appPrefix } = await openIPA(ipaPath);
+
+  const plistEntry = files.find((f) => f.path === `${appPrefix}Info.plist`);
+  if (!plistEntry) {
+    throw new Error("Info.plist not found in IPA app folder.");
   }
 
-  const appFolders = fs.readdirSync(payloadFolder).filter((item) => {
-    const itemPath = path.join(payloadFolder, item);
-    return fs.statSync(itemPath).isDirectory() && item.endsWith(".app");
-  });
+  const data = parsePlistBuffer(await plistEntry.buffer());
 
-  if (appFolders.length === 0) {
-    throw new Error("Invalid IPA structure: No .app folder found in Payload.");
-  }
-
-  const appFolder = path.join(payloadFolder, appFolders[0]);
-
-  const plistPath = path.join(appFolder, "Info.plist");
-
-  const data = parseAnyPlistFile(plistPath);
-
-  console.log('App Version (Short):', data.CFBundleShortVersionString);
-  console.log('Build Number:', data.CFBundleVersion);
-  console.log('Bundle ID:', data.CFBundleIdentifier);
+  log(chalk.cyan(`App Version: ${data.CFBundleShortVersionString}, Build: ${data.CFBundleVersion}\n`));
 
   return {
     version: data.CFBundleShortVersionString,
-    build: data.CFBundleVersion
+    build: data.CFBundleVersion,
   };
 }

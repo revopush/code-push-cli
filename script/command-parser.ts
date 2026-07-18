@@ -700,16 +700,12 @@ yargs
         "release-react MyApp android -d Production",
         'Releases the React Native Android project in the current working directory to the "MyApp" app\'s "Production" deployment'
       )
-      .example(
-        "release-react MyApp windows --dev",
-        'Releases the development bundle of the React Native Windows project in the current working directory to the "MyApp" app\'s "Staging" deployment'
-      )
       .option("bundleName", {
         alias: "b",
         default: null,
         demand: false,
         description:
-          'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS), "index.android.bundle" (Android) or "index.windows.bundle" (Windows)',
+          'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS) or "index.android.bundle" (Android)',
         type: "string",
       })
       .option("deploymentName", {
@@ -807,7 +803,7 @@ yargs
         default: null,
         demand: false,
         description:
-          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS), "build.gradle" (Android) or "Package.appxmanifest" (Windows) files.',
+          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS) or "build.gradle" (Android) files.',
         type: "string",
       })
       .option("outputDir", {
@@ -909,7 +905,7 @@ yargs
         default: null,
         demand: false,
         description:
-          'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS), "index.android.bundle" (Android) or "index.windows.bundle" (Windows)',
+          'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS) or "index.android.bundle" (Android)',
         type: "string",
       })
       .option("deploymentName", {
@@ -1007,7 +1003,7 @@ yargs
         default: null,
         demand: false,
         description:
-          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS), "build.gradle" (Android) or "Package.appxmanifest" (Windows) files.',
+          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS) or "build.gradle" (Android) files.',
         type: "string",
       })
       .option("outputDir", {
