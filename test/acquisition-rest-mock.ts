@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import * as express from "express";
 import * as querystring from "querystring";
 
 import * as acquisitionSdk from "../script/acquisition-sdk";
