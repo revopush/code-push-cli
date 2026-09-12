@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 import * as assert from "assert";
-import * as express from "express";
 import * as http from "http";
 
 import * as acquisitionSdk from "../script/acquisition-sdk";
