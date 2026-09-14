@@ -170,6 +170,7 @@ export async function runHermesEmitBinaryCommand(
             break;
           }
           case "ios": {
+            fs.copyFileSync(bundleSourceMapOutput, path.join(sourcemapOutputFolder, bundleName + ".packager.map"));
             combinedSourceMapOutput = bundleSourceMapOutput;
             break;
           }
