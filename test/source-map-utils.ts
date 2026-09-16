@@ -63,10 +63,20 @@ describe("Source map utility", () => {
     });
   });
 
-  it("never restores a structural field the composer resolved away", () => {
+  it("never restores a positional field the composer resolved away", () => {
     const composedSourceMapPath = createSourceMap("composed.map", { version: 3, sources: ["/abs/a.js"], mappings: "AAAA" });
 
-    const restoredFields = restoreSourceMapFields(composedSourceMapPath, { sourceRoot: "/abs/", sections: [], debugId: "aaaa-bbbb" });
+    // sourceRoot is already folded into the composed source paths, and every ignore list indexes into the
+    // packager's sources rather than the composed ones - carrying any of them over would corrupt the map.
+    const restoredFields = restoreSourceMapFields(composedSourceMapPath, {
+      sourceRoot: "/abs/",
+      sections: [],
+      ignoreList: [1],
+      x_google_ignoreList: [1],
+      x_facebook_sources: [null],
+      x_hermes_function_offsets: { "0": [0] },
+      debugId: "aaaa-bbbb",
+    });
 
     assert.deepStrictEqual(restoredFields, ["debugId"]);
     assert.deepStrictEqual(readSourceMapFields(composedSourceMapPath), {

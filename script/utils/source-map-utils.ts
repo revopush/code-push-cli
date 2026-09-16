@@ -6,11 +6,17 @@ import * as fs from "fs";
 export type SourceMapFields = Record<string, unknown>;
 
 /**
- * Structural fields of the source map spec. compose derives every one of them from the maps it merges, so a
- * packager value can only contradict what compose produced: a packager `sourceRoot`, for example, would be
- * re-applied on top of the source paths compose has already resolved against it.
+ * Fields whose meaning is positional - they index into `sources`/`mappings` or describe the bundle's layout.
+ * compose rewrites all of them against the composed map, so a packager value can only contradict the result:
+ * `sourceRoot` would be re-applied on top of paths compose already resolved against it, and an ignore list
+ * would point at the packager's source indices rather than the composed map's.
+ *
+ * Everything else is a free-standing label (a debug id, a build id, an arbitrary vendor blob) and is safe to
+ * carry over. Sources: the source map spec for the standard names, metro-source-map's composeSourceMaps and
+ * react-native's compose-source-maps.js for the `x_` extensions.
  */
-const STRUCTURAL_SOURCE_MAP_FIELDS: ReadonlySet<string> = new Set([
+const POSITIONAL_SOURCE_MAP_FIELDS: ReadonlySet<string> = new Set([
+  // Source map spec (both the plain and the indexed `sections` form).
   "version",
   "file",
   "sourceRoot",
@@ -18,7 +24,14 @@ const STRUCTURAL_SOURCE_MAP_FIELDS: ReadonlySet<string> = new Set([
   "sourcesContent",
   "names",
   "mappings",
+  "ignoreList",
   "sections",
+  // metro / Hermes / RAM bundle extensions.
+  "x_google_ignoreList",
+  "x_facebook_sources",
+  "x_facebook_offsets",
+  "x_facebook_segments",
+  "x_hermes_function_offsets",
 ]);
 
 export function readSourceMapFields(sourceMapPath: string): SourceMapFields {
@@ -35,10 +48,10 @@ export function readSourceMapFields(sourceMapPath: string): SourceMapFields {
  * crash reporters use to match a shipped bundle to its uploaded source map.
  *
  * Copies that metadata back into the composed map, never overwriting a value compose itself produced and never
- * touching a structural field. Returns the names of the restored fields.
+ * touching a positional field. Returns the names of the restored fields.
  */
 export function restoreSourceMapFields(composedSourceMapPath: string, packagerFields: SourceMapFields): string[] {
-  const metadataFields = Object.keys(packagerFields).filter((field) => !STRUCTURAL_SOURCE_MAP_FIELDS.has(field));
+  const metadataFields = Object.keys(packagerFields).filter((field) => !POSITIONAL_SOURCE_MAP_FIELDS.has(field));
   if (metadataFields.length === 0) {
     // Nothing worth restoring, so do not pay for parsing the composed map at all - it can be hundreds of megabytes.
     return [];
