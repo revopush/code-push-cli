@@ -4,6 +4,7 @@ import * as path from "path";
 import * as childProcess from "child_process";
 import { coerce, compare, gte, valid } from "semver";
 import { downloadBlob, extractArchive, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
+import { readSourceMapFields, restoreSourceMapFields, SourceMapFields } from "./utils/source-map-utils";
 import * as dotenv from "dotenv";
 import { DotenvParseOutput } from "dotenv";
 import * as cli from "../script/types/cli";
@@ -123,6 +124,7 @@ export async function runHermesEmitBinaryCommand(
     hermesProcess.on("close", (exitCode: number, signal: string) => {
       if (exitCode !== 0) {
         reject(new Error(`"hermes" command failed (exitCode=${exitCode}, signal=${signal}).`));
+        return;
       }
       // Copy HBC bundle to overwrite JS bundle
       const source = path.join(outputFolder, bundleName + ".hbc");
@@ -131,6 +133,7 @@ export async function runHermesEmitBinaryCommand(
         if (err) {
           console.error(err);
           reject(new Error(`Copying file ${source} to ${destination} failed. "hermes" previously exited with code ${exitCode}.`));
+          return;
         }
         fs.unlink(source, (err) => {
           if (err) {
@@ -185,6 +188,14 @@ export async function runHermesEmitBinaryCommand(
         combinedSourceMapOutput,
       ];
 
+      // Read the packager map before compose runs: on iOS it composes over that very file.
+      let packagerSourceMapFields: SourceMapFields = {};
+      try {
+        packagerSourceMapFields = readSourceMapFields(bundleSourceMapOutput);
+      } catch (error) {
+        console.error(`Could not read packager source map ${bundleSourceMapOutput}: ${error}`);
+      }
+
       // https://github.com/facebook/react-native/blob/master/react.gradle#L211
       // https://github.com/facebook/react-native/blob/master/scripts/react-native-xcode.sh#L178
       // packager.sourcemap.map + hbc.sourcemap.map = sourcemap.map
@@ -202,6 +213,16 @@ export async function runHermesEmitBinaryCommand(
       composeSourceMapsProcess.on("close", (exitCode: number, signal: string) => {
         if (exitCode !== 0) {
           reject(new Error(`"compose-source-maps" command failed (exitCode=${exitCode}, signal=${signal}).`));
+          return;
+        }
+
+        try {
+          const restoredFields = restoreSourceMapFields(combinedSourceMapOutput, packagerSourceMapFields);
+          if (restoredFields.length > 0) {
+            console.log(`Restored packager source map metadata: ${restoredFields.join(", ")}`);
+          }
+        } catch (error) {
+          console.error(`Could not restore packager source map metadata: ${error}`);
         }
 
         // Delete the HBC sourceMap, otherwise it will be included in 'code-push' bundle as well
@@ -219,7 +240,7 @@ export async function runHermesEmitBinaryCommand(
 }
 
 export function getXcodeDotEnvValue(key: string): string | undefined {
-  const xcodeEnvs = loadEnvAsMap([path.join("ios", ".xcode.env.local"), path.join("ios", ".xcode.env.local")]);
+  const xcodeEnvs = loadEnvAsMap([path.join("ios", ".xcode.env"), path.join("ios", ".xcode.env.local")]);
   return xcodeEnvs.get(key);
 }
 
@@ -452,6 +473,16 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
 }
 
 function getComposeSourceMapsPath(): string {
+  // Same escape hatch as react-native-xcode.sh: any node script taking <packager map> <hbc map> -o <output map>.
+  // react-native-xcode.sh reads it from ios/.xcode.env[.local], so honour that before the CLI's own environment.
+  const composeSourceMapsOverride = getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH");
+  if (composeSourceMapsOverride) {
+    if (!fs.existsSync(composeSourceMapsOverride)) {
+      throw new Error(`COMPOSE_SOURCEMAP_PATH points to a missing script: ${composeSourceMapsOverride}`);
+    }
+    return composeSourceMapsOverride;
+  }
+
   // detect if compose-source-maps.js script exists
   const composeSourceMaps = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
   if (fs.existsSync(composeSourceMaps)) {
