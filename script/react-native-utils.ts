@@ -107,7 +107,7 @@ export async function runHermesEmitBinaryCommand(
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
-  const hermesCommand = await getHermesCommand(gradleFile);
+  const hermesCommand = await getHermesCommand(command.platform, gradleFile, command.podFile);
   const hermesProcess = childProcess.spawn(hermesCommand, hermesArgs);
   console.log(`${hermesCommand} ${hermesArgs.join(" ")}`);
 
@@ -312,15 +312,29 @@ function parseGradlePropertiesFile(gradleFile: string): Record<string, string> {
   return props;
 }
 
+// Reads a literal `hermesCommand` from the `react { }` block or legacy `project.ext.react`.
+// Groovy expressions (e.g. Expo's computed path) can't be evaluated and are ignored.
 async function getHermesCommandFromGradle(gradleFile: string): Promise<string> {
   const buildGradle: any = await parseBuildGradleFile(gradleFile);
-  const hermesCommandProperty: any = Array.from(buildGradle["project.ext.react"] || []).find((prop: string) =>
+  const legacyProperty: string = Array.from(buildGradle["project.ext.react"] || []).find((prop: string) =>
     prop.trim().startsWith("hermesCommand:")
-  );
-  if (hermesCommandProperty) {
-    return hermesCommandProperty.replace("hermesCommand:", "").trim().slice(1, -1);
-  } else {
+  ) as string;
+  const hermesCommand: string =
+    buildGradle.react?.hermesCommand || legacyProperty?.replace("hermesCommand:", "").trim().slice(1, -1) || "";
+  if (!hermesCommand || /["'$()+]/.test(hermesCommand)) {
     return "";
+  }
+
+  const gradleDir =
+    gradleFile && !directoryExistsSync(gradleFile) ? path.dirname(gradleFile) : gradleFile || path.join("android", "app");
+  return path.resolve(gradleDir, hermesCommand.replace("%OS-BIN%", getHermesOSBin()));
+}
+
+function isHermesV1EnabledInGradle(gradleFile: string): boolean {
+  try {
+    return parseGradlePropertiesFile(gradleFile).hermesV1Enabled?.toLowerCase() === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -409,45 +423,66 @@ function getHermesOSExe(): string {
   }
 }
 
-async function getHermesCommand(gradleFile: string): Promise<string> {
-  const fileExists = (file: string): boolean => {
-    try {
-      return fs.statSync(file).isFile();
-    } catch (e) {
-      return false;
-    }
-  };
-  // Hermes is bundled with react-native since 0.69
+// Mirrors how React Native picks hermesc, so releases are compiled like the store binary:
+// Android: gradle-plugin PathUtils.detectOSAwareHermesCommand, iOS: scripts/react-native-xcode.sh
+export async function getHermesCommand(platform: string, gradleFile: string, podFile: string): Promise<string> {
   const reactNativePath = getReactNativePackagePath();
-  const bundledHermesEngine = path.join(reactNativePath, "sdks", "hermesc", getHermesOSBin(), getHermesOSExe());
-  if (fileExists(bundledHermesEngine)) {
-    return bundledHermesEngine;
-  }
+  const bundledHermesc = path.join(reactNativePath, "sdks", "hermesc", getHermesOSBin(), getHermesOSExe());
+  const hermesCompiler = getHermesCompilerPath(reactNativePath);
+  const candidates: string[] = [];
 
-  let gradleHermesCommand = "";
-  try {
-    gradleHermesCommand = await getHermesCommandFromGradle(gradleFile);
-  } catch {
-    // Gradle files not present (e.g. iOS-only project); skip to node_modules fallback
-  }
-  if (gradleHermesCommand) {
-    return path.join("android", "app", gradleHermesCommand.replace("%OS-BIN%", getHermesOSBin()));
+  if (platform === "ios") {
+    if (process.env.HERMES_CLI_PATH) {
+      return process.env.HERMES_CLI_PATH;
+    }
+    const podsRoot = path.join(path.dirname(podFile || path.join("ios", "Podfile")), "Pods");
+    candidates.push(path.join(podsRoot, "hermes-engine", "destroot", "bin", "hermesc"), hermesCompiler, bundledHermesc);
   } else {
-    const nodeModulesPath = getNodeModulesPath(reactNativePath);
-
-    // assume if hermes-engine exists it should be used instead of hermesvm
-    const hermesEngine = path.join(nodeModulesPath, "hermes-engine", getHermesOSBin(), getHermesOSExe());
-    if (fileExists(hermesEngine)) {
-      return hermesEngine;
+    let gradleHermesCommand = "";
+    try {
+      gradleHermesCommand = await getHermesCommandFromGradle(gradleFile);
+    } catch {
+      // Gradle files not present; fall back to the default locations
+    }
+    if (gradleHermesCommand) {
+      return gradleHermesCommand;
     }
 
-    // RN 0.83 hermes-compiler
-    const hermesCompiler = path.join(nodeModulesPath, "hermes-compiler", "hermesc", getHermesOSBin(), getHermesOSExe());
-    if (fileExists(hermesCompiler)) {
-      return hermesCompiler;
-    }
+    const overrideHermesDir = process.env.REACT_NATIVE_OVERRIDE_HERMES_DIR;
+    candidates.push(
+      overrideHermesDir
+        ? path.join(overrideHermesDir, "build", "bin", getHermesOSExe())
+        : path.join(reactNativePath, "ReactAndroid", "hermes-engine", "build", "hermes", "bin", getHermesOSExe())
+    );
+    // RN 0.82 uses hermes-compiler only with hermesV1Enabled; RN <= 0.82 ships sdks/hermesc, RN 0.83+ only hermes-compiler
+    candidates.push(...(isHermesV1EnabledInGradle(gradleFile) ? [hermesCompiler, bundledHermesc] : [bundledHermesc, hermesCompiler]));
+  }
 
-    return path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes");
+  // RN < 0.69 shipped hermesc in the hermes-engine / hermesvm packages
+  const nodeModulesPath = getNodeModulesPath(reactNativePath);
+  candidates.push(path.join(nodeModulesPath, "hermes-engine", getHermesOSBin(), getHermesOSExe()));
+
+  return (
+    candidates.find((candidate) => candidate && fileExistsSync(candidate)) ||
+    path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes")
+  );
+}
+
+// hermes-compiler is a dependency of react-native, so resolve it from there (it may not be hoisted)
+function getHermesCompilerPath(reactNativePath: string): string | null {
+  try {
+    const packageJson = require.resolve("hermes-compiler/package.json", { paths: [reactNativePath] });
+    return path.join(path.dirname(packageJson), "hermesc", getHermesOSBin(), getHermesOSExe());
+  } catch {
+    return null;
+  }
+}
+
+function fileExistsSync(file: string): boolean {
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
   }
 }
 
