@@ -71,6 +71,48 @@ export async function takeHermesBaseBytecode(
   return baseReleaseBundle;
 }
 
+// Hermes BytecodeFileHeader: uint64 magic, uint32 version (little-endian), stable since Hermes v0.1
+const HERMES_BYTECODE_MAGIC = BigInt("0x1F1903C103BC1FC6");
+
+function getHermesBytecodeVersion(bytecode: Buffer): number | null {
+  if (bytecode.length < 12 || bytecode.readBigUInt64LE(0) !== HERMES_BYTECODE_MAGIC) {
+    return null;
+  }
+  return bytecode.readUInt32LE(8);
+}
+
+// Compile an empty input to stdout and read the version from the emitted header
+export function getHermesCompilerBytecodeVersion(hermesCommand: string): number | null {
+  const result = childProcess.spawnSync(hermesCommand, ["-emit-binary", "-"], { input: "", timeout: 30000 });
+  return result.status === 0 ? getHermesBytecodeVersion(result.stdout) : null;
+}
+
+// hermesc -base-bytecode aborts on a base of another bytecode version; the base is only a diff optimization
+export function resolveHermesBaseBytecode(baseBytecode: string, compilerBytecodeVersion: number | null): string | null {
+  const baseBytecodeVersion = getHermesBytecodeVersion(fs.readFileSync(baseBytecode));
+  if (baseBytecodeVersion === null) {
+    log(chalk.yellow("\nBase release bundle is not Hermes bytecode, skipping -base-bytecode.\n"));
+    return null;
+  }
+
+  if (compilerBytecodeVersion === null) {
+    log(chalk.yellow("\nCould not detect the Hermes compiler bytecode version, skipping -base-bytecode.\n"));
+    return null;
+  }
+
+  if (baseBytecodeVersion !== compilerBytecodeVersion) {
+    log(
+      chalk.yellow(
+        `\nWarning: base release is Hermes bytecode v${baseBytecodeVersion}, local compiler produces v${compilerBytecodeVersion}. ` +
+          `Skipping -base-bytecode. Binaries on v${baseBytecodeVersion} can't run this update.\n`
+      )
+    );
+    return null;
+  }
+
+  return baseBytecode;
+}
+
 export async function runHermesEmitBinaryCommand(
   command: cli.IReleaseReactCommand,
   bundleName: string,
@@ -102,16 +144,21 @@ export async function runHermesEmitBinaryCommand(
     hermesArgs.push("-output-source-map");
   }
 
-  if (baseBytecode) {
-    hermesArgs.push("-base-bytecode", baseBytecode);
+  const hermesCommand = await getHermesCommand(command.platform, gradleFile, command.podFile);
+
+  const resolvedBaseBytecode =
+    baseBytecode && resolveHermesBaseBytecode(baseBytecode, getHermesCompilerBytecodeVersion(hermesCommand));
+  if (resolvedBaseBytecode) {
+    hermesArgs.push("-base-bytecode", resolvedBaseBytecode);
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
-  const hermesCommand = await getHermesCommand(command.platform, gradleFile, command.podFile);
   const hermesProcess = childProcess.spawn(hermesCommand, hermesArgs);
   console.log(`${hermesCommand} ${hermesArgs.join(" ")}`);
 
   return new Promise<void>((resolve, reject) => {
+    hermesProcess.on("error", reject);
+
     hermesProcess.stdout.on("data", (data: Buffer) => {
       console.log(data.toString().trim());
     });
@@ -123,6 +170,7 @@ export async function runHermesEmitBinaryCommand(
     hermesProcess.on("close", (exitCode: number, signal: string) => {
       if (exitCode !== 0) {
         reject(new Error(`"hermes" command failed (exitCode=${exitCode}, signal=${signal}).`));
+        return;
       }
       // Copy HBC bundle to overwrite JS bundle
       const source = path.join(outputFolder, bundleName + ".hbc");
@@ -131,11 +179,13 @@ export async function runHermesEmitBinaryCommand(
         if (err) {
           console.error(err);
           reject(new Error(`Copying file ${source} to ${destination} failed. "hermes" previously exited with code ${exitCode}.`));
+          return;
         }
         fs.unlink(source, (err) => {
           if (err) {
             console.error(err);
             reject(err);
+            return;
           }
           resolve(null as void);
         });
@@ -202,6 +252,7 @@ export async function runHermesEmitBinaryCommand(
       composeSourceMapsProcess.on("close", (exitCode: number, signal: string) => {
         if (exitCode !== 0) {
           reject(new Error(`"compose-source-maps" command failed (exitCode=${exitCode}, signal=${signal}).`));
+          return;
         }
 
         // Delete the HBC sourceMap, otherwise it will be included in 'code-push' bundle as well
@@ -209,6 +260,7 @@ export async function runHermesEmitBinaryCommand(
           if (err) {
             console.error(err);
             reject(err);
+            return;
           }
 
           resolve(null);
