@@ -74,38 +74,22 @@ export async function takeHermesBaseBytecode(
 // Hermes BytecodeFileHeader: uint64 magic, uint32 version (little-endian), stable since Hermes v0.1
 const HERMES_BYTECODE_MAGIC = BigInt("0x1F1903C103BC1FC6");
 
-export function readHermesBytecodeVersion(bundlePath: string): number | null {
-  const header = Buffer.alloc(12);
-  const fd = fs.openSync(bundlePath, "r");
-  let bytesRead: number;
-  try {
-    bytesRead = fs.readSync(fd, header, 0, header.length, 0);
-  } finally {
-    fs.closeSync(fd);
-  }
-
-  if (bytesRead < header.length || header.readBigUInt64LE(0) !== HERMES_BYTECODE_MAGIC) {
+function getHermesBytecodeVersion(bytecode: Buffer): number | null {
+  if (bytecode.length < 12 || bytecode.readBigUInt64LE(0) !== HERMES_BYTECODE_MAGIC) {
     return null;
   }
-  return header.readUInt32LE(8);
+  return bytecode.readUInt32LE(8);
 }
 
-export function parseHermesCompilerBytecodeVersion(versionOutput: string): number | null {
-  const match = /HBC bytecode version:\s*(\d+)/.exec(versionOutput);
-  return match ? parseInt(match[1], 10) : null;
-}
-
-function getHermesCompilerBytecodeVersion(hermesCommand: string): number | null {
-  const result = childProcess.spawnSync(hermesCommand, ["-version"], { encoding: "utf8", timeout: 30000 });
-  if (result.error) {
-    return null;
-  }
-  return parseHermesCompilerBytecodeVersion(`${result.stdout}\n${result.stderr}`);
+// Compile an empty input to stdout and read the version from the emitted header
+export function getHermesCompilerBytecodeVersion(hermesCommand: string): number | null {
+  const result = childProcess.spawnSync(hermesCommand, ["-emit-binary", "-"], { input: "", timeout: 30000 });
+  return result.status === 0 ? getHermesBytecodeVersion(result.stdout) : null;
 }
 
 // hermesc -base-bytecode aborts on a base of another bytecode version; the base is only a diff optimization
 export function resolveHermesBaseBytecode(baseBytecode: string, compilerBytecodeVersion: number | null): string | null {
-  const baseBytecodeVersion = readHermesBytecodeVersion(baseBytecode);
+  const baseBytecodeVersion = getHermesBytecodeVersion(fs.readFileSync(baseBytecode));
   if (baseBytecodeVersion === null) {
     log(chalk.yellow("\nBase release bundle is not Hermes bytecode, skipping -base-bytecode.\n"));
     return null;
@@ -119,11 +103,8 @@ export function resolveHermesBaseBytecode(baseBytecode: string, compilerBytecode
   if (baseBytecodeVersion !== compilerBytecodeVersion) {
     log(
       chalk.yellow(
-        `\nWarning: the base release bundle was compiled to Hermes bytecode v${baseBytecodeVersion}, ` +
-          `but the local Hermes compiler produces v${compilerBytecodeVersion}. Skipping -base-bytecode.\n` +
-          `The Hermes runtime only loads bytecode of its own version, so binaries built with ` +
-          `bytecode v${baseBytecodeVersion} will not be able to run this update. ` +
-          `If React Native / Hermes was upgraded, ship a new binary and target this release at its version.\n`
+        `\nWarning: base release is Hermes bytecode v${baseBytecodeVersion}, local compiler produces v${compilerBytecodeVersion}. ` +
+          `Skipping -base-bytecode. Binaries on v${baseBytecodeVersion} can't run this update.\n`
       )
     );
     return null;
