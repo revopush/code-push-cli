@@ -3,7 +3,8 @@ import * as chalk from "chalk";
 import * as path from "path";
 import * as childProcess from "child_process";
 import { coerce, compare, gte, valid } from "semver";
-import { downloadBlob, extractArchive, fileDoesNotExistOrIsDirectory } from "./utils/file-utils";
+import { downloadBlob, extractArchive, fileDoesNotExistOrIsDirectory, fileExists } from "./utils/file-utils";
+import { evaluateKotlinDslReactConfig, resolveGradleBuildFile } from "./utils/gradle-utils";
 import * as dotenv from "dotenv";
 import { DotenvParseOutput } from "dotenv";
 import * as cli from "../script/types/cli";
@@ -146,10 +147,12 @@ export async function runHermesEmitBinaryCommand(
 
   const hermesCommand = await getHermesCommand(command.platform, gradleFile, command.podFile);
 
-  const resolvedBaseBytecode =
-    baseBytecode && resolveHermesBaseBytecode(baseBytecode, getHermesCompilerBytecodeVersion(hermesCommand));
-  if (resolvedBaseBytecode) {
-    hermesArgs.push("-base-bytecode", resolvedBaseBytecode);
+  if (baseBytecode) {
+    const compilerBytecodeVersion = getHermesCompilerBytecodeVersion(hermesCommand);
+    const resolvedBaseBytecode = resolveHermesBaseBytecode(baseBytecode, compilerBytecodeVersion);
+    if (resolvedBaseBytecode) {
+      hermesArgs.push("-base-bytecode", resolvedBaseBytecode);
+    }
   }
 
   console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
@@ -271,7 +274,8 @@ export async function runHermesEmitBinaryCommand(
 }
 
 export function getXcodeDotEnvValue(key: string): string | undefined {
-  const xcodeEnvs = loadEnvAsMap([path.join("ios", ".xcode.env.local"), path.join("ios", ".xcode.env.local")]);
+  // Xcode sources .xcode.env, then .xcode.env.local
+  const xcodeEnvs = loadEnvAsMap([path.join("ios", ".xcode.env"), path.join("ios", ".xcode.env.local")]);
   return xcodeEnvs.get(key);
 }
 
@@ -364,22 +368,54 @@ function parseGradlePropertiesFile(gradleFile: string): Record<string, string> {
   return props;
 }
 
-// Reads a literal `hermesCommand` from the `react { }` block or legacy `project.ext.react`.
-// Groovy expressions (e.g. Expo's computed path) can't be evaluated and are ignored.
+// Only literal paths (plus $rootDir / $projectDir) can be resolved; other Groovy expressions, like Expo's, are ignored
 async function getHermesCommandFromGradle(gradleFile: string): Promise<string> {
+  const buildFile = resolveGradleBuildFile(gradleFile || path.join("android", "app"));
+  if (buildFile.endsWith(".kts")) {
+    return getHermesCommandFromKotlinDsl(buildFile);
+  }
+
   const buildGradle: any = await parseBuildGradleFile(gradleFile);
-  const legacyProperty: string = Array.from(buildGradle["project.ext.react"] || []).find((prop: string) =>
-    prop.trim().startsWith("hermesCommand:")
-  ) as string;
-  const hermesCommand: string =
-    buildGradle.react?.hermesCommand || legacyProperty?.replace("hermesCommand:", "").trim().slice(1, -1) || "";
-  if (!hermesCommand || /["'$()+]/.test(hermesCommand)) {
+  const gradlePath = gradleFile || path.join("android", "app");
+  const appDir = path.resolve(directoryExistsSync(gradlePath) ? gradlePath : path.dirname(gradlePath));
+  const rootDir = path.dirname(appDir);
+
+  // The gradle plugin runs hermesc from react.root (default: $rootDir/..); legacy react.gradle from the app module
+  let hermesCommand: string = buildGradle.react?.hermesCommand;
+  let workingDir = path.dirname(rootDir);
+  if (!hermesCommand) {
+    const legacyProperties: string[] = Array.from(buildGradle["project.ext.react"] || []);
+    const legacyProperty = legacyProperties.find((prop) => prop.trim().startsWith("hermesCommand:"));
+    hermesCommand = legacyProperty?.replace("hermesCommand:", "").trim().slice(1, -1);
+    workingDir = appDir;
+  }
+  if (!hermesCommand) {
     return "";
   }
 
-  const gradleDir =
-    gradleFile && !directoryExistsSync(gradleFile) ? path.dirname(gradleFile) : gradleFile || path.join("android", "app");
-  return path.resolve(gradleDir, hermesCommand.replace("%OS-BIN%", getHermesOSBin()));
+  hermesCommand = hermesCommand
+    .replace(/\$(\{rootDir\}|rootDir\b)/g, () => rootDir)
+    .replace(/\$(\{projectDir\}|projectDir\b)/g, () => appDir);
+  if (/["'$()+]/.test(hermesCommand)) {
+    return "";
+  }
+
+  return path.resolve(workingDir, hermesCommand.replace("%OS-BIN%", getHermesOSBin()));
+}
+
+// Kotlin DSL can't be parsed statically, so evaluate it with Gradle, but only if it sets hermesCommand
+async function getHermesCommandFromKotlinDsl(buildFile: string): Promise<string> {
+  if (!/^\s*(react\.)?hermesCommand\b/m.test(fs.readFileSync(buildFile, "utf8"))) {
+    return "";
+  }
+
+  try {
+    const { hermesCommand, root } = await evaluateKotlinDslReactConfig(buildFile);
+    return hermesCommand && root ? path.resolve(root, hermesCommand.replace("%OS-BIN%", getHermesOSBin())) : "";
+  } catch (error) {
+    log(chalk.yellow(`\nWarning: ${error.message}\nUsing the default hermesc instead.\n`));
+    return "";
+  }
 }
 
 function isHermesV1EnabledInGradle(gradleFile: string): boolean {
@@ -475,49 +511,55 @@ function getHermesOSExe(): string {
   }
 }
 
-// Mirrors how React Native picks hermesc, so releases are compiled like the store binary:
-// Android: gradle-plugin PathUtils.detectOSAwareHermesCommand, iOS: scripts/react-native-xcode.sh
+// Mirrors how React Native picks hermesc, so updates are compiled like the store binary.
+// Android: gradle-plugin PathUtils.detectOSAwareHermesCommand; iOS: scripts/react-native-xcode.sh
 export async function getHermesCommand(platform: string, gradleFile: string, podFile: string): Promise<string> {
   const reactNativePath = getReactNativePackagePath();
   const bundledHermesc = path.join(reactNativePath, "sdks", "hermesc", getHermesOSBin(), getHermesOSExe());
   const hermesCompiler = getHermesCompilerPath(reactNativePath);
-  const candidates: string[] = [];
+  let candidates: string[];
 
   if (platform === "ios") {
-    if (process.env.HERMES_CLI_PATH) {
-      return process.env.HERMES_CLI_PATH;
+    // react-native-xcode.sh honors HERMES_CLI_PATH from the environment or ios/.xcode.env(.local)
+    const hermesCliPath = getXcodeDotEnvValue("HERMES_CLI_PATH");
+    if (hermesCliPath) {
+      return hermesCliPath;
     }
-    const podsRoot = path.join(path.dirname(podFile || path.join("ios", "Podfile")), "Pods");
-    candidates.push(path.join(podsRoot, "hermes-engine", "destroot", "bin", "hermesc"), hermesCompiler, bundledHermesc);
+    const podsDir = path.join(path.dirname(podFile || path.join("ios", "Podfile")), "Pods");
+    const podsHermesc = path.join(podsDir, "hermes-engine", "destroot", "bin", "hermesc");
+
+    // Without Pods (e.g. CI), pick the compiler like Android: RN 0.82 uses hermes-compiler only for Hermes V1
+    if (process.env.RCT_HERMES_V1_ENABLED === "1") {
+      candidates = [podsHermesc, hermesCompiler, bundledHermesc];
+    } else {
+      candidates = [podsHermesc, bundledHermesc, hermesCompiler];
+    }
   } else {
-    let gradleHermesCommand = "";
-    try {
-      gradleHermesCommand = await getHermesCommandFromGradle(gradleFile);
-    } catch {
-      // Gradle files not present; fall back to the default locations
-    }
+    // A missing or unparsable gradle file just means there is no hermesCommand override
+    const gradleHermesCommand = await getHermesCommandFromGradle(gradleFile).catch(() => "");
     if (gradleHermesCommand) {
       return gradleHermesCommand;
     }
 
     const overrideHermesDir = process.env.REACT_NATIVE_OVERRIDE_HERMES_DIR;
-    candidates.push(
-      overrideHermesDir
-        ? path.join(overrideHermesDir, "build", "bin", getHermesOSExe())
-        : path.join(reactNativePath, "ReactAndroid", "hermes-engine", "build", "hermes", "bin", getHermesOSExe())
-    );
+    const sourceBuiltHermesc = overrideHermesDir
+      ? path.join(overrideHermesDir, "build", "bin", getHermesOSExe())
+      : path.join(reactNativePath, "ReactAndroid", "hermes-engine", "build", "hermes", "bin", getHermesOSExe());
+
     // RN 0.82 uses hermes-compiler only with hermesV1Enabled; RN <= 0.82 ships sdks/hermesc, RN 0.83+ only hermes-compiler
-    candidates.push(...(isHermesV1EnabledInGradle(gradleFile) ? [hermesCompiler, bundledHermesc] : [bundledHermesc, hermesCompiler]));
+    if (isHermesV1EnabledInGradle(gradleFile)) {
+      candidates = [sourceBuiltHermesc, hermesCompiler, bundledHermesc];
+    } else {
+      candidates = [sourceBuiltHermesc, bundledHermesc, hermesCompiler];
+    }
   }
 
   // RN < 0.69 shipped hermesc in the hermes-engine / hermesvm packages
   const nodeModulesPath = getNodeModulesPath(reactNativePath);
   candidates.push(path.join(nodeModulesPath, "hermes-engine", getHermesOSBin(), getHermesOSExe()));
 
-  return (
-    candidates.find((candidate) => candidate && fileExistsSync(candidate)) ||
-    path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes")
-  );
+  const hermesc = candidates.find((candidate) => candidate && fileExists(candidate));
+  return hermesc || path.join(nodeModulesPath, "hermesvm", getHermesOSBin(), "hermes");
 }
 
 // hermes-compiler is a dependency of react-native, so resolve it from there (it may not be hoisted)
@@ -527,14 +569,6 @@ function getHermesCompilerPath(reactNativePath: string): string | null {
     return path.join(path.dirname(packageJson), "hermesc", getHermesOSBin(), getHermesOSExe());
   } catch {
     return null;
-  }
-}
-
-function fileExistsSync(file: string): boolean {
-  try {
-    return fs.statSync(file).isFile();
-  } catch {
-    return false;
   }
 }
 
