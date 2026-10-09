@@ -33,27 +33,37 @@ const FALLBACK_HINT = "Pass the version explicitly with --targetBinaryVersion to
 
 // "revopush"-prefixed to avoid collisions with project tasks; written in Groovy,
 // which Gradle accepts as an init script for projects of either DSL.
-const PRINT_VERSION_TASK = "_revopushPrintVersion";
-const printVersionInitScript = (moduleName: string) => `
+const PRINT_TASK = "_revopushPrint";
+const printInitScript = (moduleName: string, printJson: string) => `
 allprojects {
   afterEvaluate { proj ->
     if (proj.name == '${moduleName}') {
-      task ${PRINT_VERSION_TASK} {
+      task ${PRINT_TASK} {
         doLast {
-          def android = proj.extensions.findByName('android')
-          if (android == null) {
-            throw new GradleException("Project ':${moduleName}' does not apply the Android Gradle plugin (no 'android' extension found).")
-          }
-          println groovy.json.JsonOutput.toJson([
-            versionName: android.defaultConfig.versionName,
-            versionCode: android.defaultConfig.versionCode?.toString()
-          ])
+          ${printJson}
         }
       }
     }
   }
 }
 `.trim();
+
+const PRINT_VERSION = `
+          def android = proj.extensions.findByName('android')
+          if (android == null) {
+            throw new GradleException("Project ':\${proj.name}' does not apply the Android Gradle plugin (no 'android' extension found).")
+          }
+          println groovy.json.JsonOutput.toJson([
+            versionName: android.defaultConfig.versionName,
+            versionCode: android.defaultConfig.versionCode?.toString()
+          ])`;
+
+const PRINT_REACT_CONFIG = `
+          def react = proj.extensions.findByName('react')
+          println groovy.json.JsonOutput.toJson([
+            hermesCommand: react?.hermesCommand?.getOrElse(''),
+            root: react?.root?.get()?.asFile?.absolutePath
+          ])`;
 
 /** @param gradleFile build script path or its directory; defaults to "android/app". */
 export async function getAndroidVersionInfo(gradleFile?: string | null): Promise<AndroidVersionInfo> {
@@ -74,7 +84,7 @@ export async function getAndroidVersionInfo(gradleFile?: string | null): Promise
 }
 
 /** Locates the build script: the given file itself, or inside the given directory (Kotlin DSL preferred). */
-function resolveGradleBuildFile(gradleFile: string): string {
+export function resolveGradleBuildFile(gradleFile: string): string {
   const candidates = [gradleFile, path.join(gradleFile, "build.gradle.kts"), path.join(gradleFile, "build.gradle")];
   const buildFile = candidates.find(fileExists);
   if (!buildFile) {
@@ -104,27 +114,41 @@ async function parseGroovyDslBuildFile(buildFile: string): Promise<GradleVersion
 }
 
 async function evaluateKotlinDslBuildFile(buildFile: string): Promise<GradleVersionFields> {
+  try {
+    return await runGradlePrintTask(buildFile, PRINT_VERSION);
+  } catch (error) {
+    throw new Error(`${error.message}\n${FALLBACK_HINT}`);
+  }
+}
+
+/** Evaluates the `react { }` extension of a Kotlin DSL build script. */
+export function evaluateKotlinDslReactConfig(buildFile: string): Promise<{ hermesCommand?: string; root?: string }> {
+  return runGradlePrintTask(buildFile, PRINT_REACT_CONFIG);
+}
+
+/** Runs the project's Gradle wrapper with an injected task and returns the JSON it prints. */
+async function runGradlePrintTask(buildFile: string, printJson: string): Promise<any> {
   // The build file lives in the application module folder (typically android/app);
   // its parent is the Gradle project root, and the folder name is the module name.
   const moduleName = path.basename(path.dirname(path.resolve(buildFile)));
   const androidDir = path.resolve(buildFile, "..", "..");
   const gradlew = path.join(androidDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   if (!fileExists(gradlew)) {
-    throw new Error(`No Gradle wrapper found at "${gradlew}", required to evaluate "${buildFile}". ${FALLBACK_HINT}`);
+    throw new Error(`No Gradle wrapper found at "${gradlew}", required to evaluate "${buildFile}".`);
   }
 
   const initScript = path.join(os.tmpdir(), `revopush-init-${process.pid}.gradle`);
 
-  fs.writeFileSync(initScript, printVersionInitScript(moduleName), "utf8");
+  fs.writeFileSync(initScript, printInitScript(moduleName, printJson), "utf8");
   try {
     const { stdout } = await exec(
-      `"${gradlew}" --project-dir "${androidDir}" --init-script "${initScript}" -q :${moduleName}:${PRINT_VERSION_TASK}`,
+      `"${gradlew}" --project-dir "${androidDir}" --init-script "${initScript}" -q :${moduleName}:${PRINT_TASK}`,
       { timeout: 120000 }
     );
     // The task's JSON is the last line; configuration-phase output (plugin notices, printlns) may precede it.
     return JSON.parse(stdout.trim().split(/\r?\n/).pop() ?? "");
   } catch (error) {
-    throw new Error(`Gradle failed while reading the version from "${buildFile}": ${error.message}\n${FALLBACK_HINT}`);
+    throw new Error(`Gradle failed while evaluating "${buildFile}": ${error.message}`);
   } finally {
     fs.rmSync(initScript, { force: true });
   }
