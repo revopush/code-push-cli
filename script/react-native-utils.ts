@@ -110,10 +110,11 @@ async function composeHermesSourceMaps(
   outputFolder: string,
   sourcemapOutputFolder: string
 ): Promise<void> {
-  // react-native-xcode.sh's override, iOS only; an empty value means unset
-  const composeSourceMaps =
-    (command.platform === "ios" && getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH")) ||
-    path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+  let composeSourceMaps = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+  // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
+  if (command.platform === "ios") {
+    composeSourceMaps = getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH") || composeSourceMaps;
+  }
   if (!fs.existsSync(composeSourceMaps)) {
     throw new Error(`Source map compose script ${composeSourceMaps} is not found`);
   }
