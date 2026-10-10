@@ -35,7 +35,7 @@ export function getReactNativeVersion(): string {
   }
 }
 
-/** A value react-native-xcode.sh sees: ios/.xcode.env.local overrides ios/.xcode.env, which overrides the environment. */
+/** As react-native-xcode.sh sees it: ios/.xcode.env.local, then ios/.xcode.env, then the environment */
 export function getXcodeDotEnvValue(key: string): string | undefined {
   for (const envFile of [".xcode.env.local", ".xcode.env"]) {
     const envPath = path.join("ios", envFile);

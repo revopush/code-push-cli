@@ -21,11 +21,11 @@ export function getBundleSourceMapOutput(
 ): string {
   switch (platform) {
     case "android": {
-      // With Hermes, Metro's map is the "packager" one (BundleHermesCTask.resolvePackagerSourceMapFile)
+      // With Hermes, Metro's map is the "packager" one (BundleHermesCTask)
       return path.join(sourcemapOutputFolder, bundleName + (isHermes ? ".packager.map" : ".map"));
     }
     case "ios": {
-      // Named like react-native-xcode.sh does, since the name ends up in the bundle's sourceMappingURL
+      // Same name as react-native-xcode.sh, since it ends up in the bundle's sourceMappingURL
       const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE");
       return path.join(sourcemapOutputFolder, sourceMapFile ? path.basename(sourceMapFile) : bundleName + ".map");
     }
@@ -102,7 +102,7 @@ export async function runHermesEmitBinaryCommand(
   }
 }
 
-// Packager + Hermes source maps = final source map, as react-native-xcode.sh and the RN Gradle plugin do
+// Packager + Hermes source maps = final source map, as RN's build does
 async function composeHermesSourceMaps(
   command: cli.IReleaseReactCommand,
   bundleName: string,
@@ -127,7 +127,7 @@ async function composeHermesSourceMaps(
   }
 
   await runCommand("compose-source-maps", "node", [composeSourceMaps, packagerSourceMap, hermesSourceMap, "-o", combinedSourceMap]);
-  // Otherwise it would be released too
+  // Not part of the release
   await fs.promises.unlink(hermesSourceMap);
 }
 

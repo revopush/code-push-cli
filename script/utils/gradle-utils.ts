@@ -1,5 +1,5 @@
-// Reads the Android app's version and Hermes settings. Groovy DSL is parsed statically; Kotlin DSL is evaluated
-// by running the Gradle wrapper with an injected task that prints the values.
+// Reads the Android app's version and Hermes settings. Groovy DSL is parsed statically; Kotlin DSL versions are
+// evaluated by running the Gradle wrapper with an injected task that prints them.
 
 import * as childProcess from "child_process";
 import * as fs from "fs";
@@ -30,38 +30,29 @@ interface GradleVersionFields {
 const DEFAULT_APP_DIR = path.join("android", "app");
 const FALLBACK_HINT = "Pass the version explicitly with --targetBinaryVersion to skip Gradle detection.";
 
-// Groovy init scripts work for projects of either DSL
-const PRINT_TASK = "_revopushPrint";
-const printInitScript = (moduleName: string, printJson: string) => `
+// "revopush"-prefixed to avoid collisions with project tasks; written in Groovy,
+// which Gradle accepts as an init script for projects of either DSL.
+const PRINT_VERSION_TASK = "_revopushPrintVersion";
+const printVersionInitScript = (moduleName: string) => `
 allprojects {
   afterEvaluate { proj ->
     if (proj.name == '${moduleName}') {
-      task ${PRINT_TASK} {
+      task ${PRINT_VERSION_TASK} {
         doLast {
-          ${printJson}
+          def android = proj.extensions.findByName('android')
+          if (android == null) {
+            throw new GradleException("Project ':${moduleName}' does not apply the Android Gradle plugin (no 'android' extension found).")
+          }
+          println groovy.json.JsonOutput.toJson([
+            versionName: android.defaultConfig.versionName,
+            versionCode: android.defaultConfig.versionCode?.toString()
+          ])
         }
       }
     }
   }
 }
 `.trim();
-
-const PRINT_VERSION = `
-          def android = proj.extensions.findByName('android')
-          if (android == null) {
-            throw new GradleException("Project ':\${proj.name}' does not apply the Android Gradle plugin (no 'android' extension found).")
-          }
-          println groovy.json.JsonOutput.toJson([
-            versionName: android.defaultConfig.versionName,
-            versionCode: android.defaultConfig.versionCode?.toString()
-          ])`;
-
-const PRINT_REACT_CONFIG = `
-          def react = proj.extensions.findByName('react')
-          println groovy.json.JsonOutput.toJson([
-            hermesCommand: react?.hermesCommand?.getOrElse(''),
-            root: react?.root?.get()?.asFile?.absolutePath
-          ])`;
 
 // Every `gradleFile` parameter below is the app's build script or its directory; defaults to "android/app".
 
@@ -85,7 +76,7 @@ export async function getAndroidVersionInfo(gradleFile?: string | null): Promise
   return { appVersion, buildNumber };
 }
 
-/** `(react.)hermesEnabled` from gradle.properties, or `enableHermes` from RN < 0.71's `project.ext.react`; undefined if unset. */
+/** `hermesEnabled` / `react.hermesEnabled`, or RN < 0.71's `enableHermes`; undefined if unset */
 export async function getGradleHermesEnabled(gradleFile?: string | null): Promise<boolean | undefined> {
   let enabled = readGradleProperty("hermesEnabled", gradleFile) ?? readGradleProperty("react.hermesEnabled", gradleFile);
   const buildFile = findGradleBuildFile(gradleFile);
@@ -96,14 +87,16 @@ export async function getGradleHermesEnabled(gradleFile?: string | null): Promis
   return enabled === undefined ? undefined : enabled.toLowerCase() === "true";
 }
 
-/**
- * The app's `react { hermesCommand }` (or RN < 0.71's `project.ext.react`) as an absolute path, resolved from the
- * directory the RN Gradle plugin runs hermesc in. It may still contain the `%OS-BIN%` placeholder.
- */
-export async function getGradleHermesCommand(gradleFile?: string | null): Promise<string | undefined> {
+/** A literal `hermesCommand`, resolved from the project root like the RN Gradle plugin; expressions are ignored */
+export function getGradleHermesCommand(gradleFile?: string | null): string | undefined {
   const buildFile = findGradleBuildFile(gradleFile);
-  if (!buildFile) return undefined;
-  return isKotlinDsl(buildFile) ? evaluateKotlinDslHermesCommand(buildFile) : parseGroovyDslHermesCommand(buildFile);
+  const buildScript = buildFile ? fs.readFileSync(buildFile, "utf8") : "";
+  const hermesCommand = /^\s*hermesCommand\s*(?:=|\.set\()\s*["']([^"']+)["']\s*\)?\s*$/m.exec(buildScript)?.[1];
+  if (!hermesCommand) return undefined;
+
+  const androidDir = path.resolve(path.dirname(buildFile), "..");
+  const expanded = hermesCommand.replace(/^\$\{?rootDir\}?/, androidDir);
+  return expanded.includes("$") ? undefined : path.resolve(androidDir, "..", expanded);
 }
 
 /** A property from the app module's or the Android project's gradle.properties. */
@@ -140,44 +133,11 @@ function parseGroovyDslBuildFile(buildFile: string): Promise<any> {
   });
 }
 
-// RN < 0.71 configured the app with `project.ext.react = [key: value, ...]`. g2js keeps a trailing `// comment`
-// at the start of the next entry (RN's template has `enableHermes: false,  // ...`), so strip comments first.
+// RN < 0.71's `project.ext.react = [key: value]`. g2js prepends a trailing `// comment` to the next entry, so strip it
 function getLegacyReactProperty(parsed: any, key: string): string | undefined {
   const entries: string[] = parsed["project.ext.react"] || [];
   const entry = entries.map((prop) => prop.replace(/\/\/.*$/gm, "").trim()).find((prop) => prop.startsWith(`${key}:`));
   return entry?.slice(key.length + 1).trim().replace(/^["']|["']$/g, "");
-}
-
-// The RN Gradle plugin runs hermesc from react.root (default: the project root); RN < 0.71's react.gradle from the app module
-async function parseGroovyDslHermesCommand(buildFile: string): Promise<string | undefined> {
-  const gradle = await parseGroovyDslBuildFile(buildFile);
-  const appDir = path.resolve(path.dirname(buildFile));
-  const variables = { rootDir: path.dirname(appDir), projectDir: appDir };
-
-  if (gradle.react?.hermesCommand) {
-    const hermesCommand = toLiteralPath(gradle.react.hermesCommand, variables);
-    const root = toLiteralPath(/^file\(["'](.+)["']\)$/.exec(gradle.react.root ?? "")?.[1], variables) ?? "../..";
-    return hermesCommand && path.resolve(appDir, root, hermesCommand);
-  }
-
-  const legacyHermesCommand = toLiteralPath(getLegacyReactProperty(gradle, "hermesCommand"), variables);
-  return legacyHermesCommand && path.resolve(appDir, legacyHermesCommand);
-}
-
-// A plain Groovy string with $rootDir / $projectDir expanded; undefined for any other expression, like Expo's
-function toLiteralPath(value: unknown, variables: Record<string, string>): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const expanded = value.replace(/\$(?:\{(\w+)\}|(\w+))/g, (match, braced, bare) => variables[braced ?? bare] ?? match);
-  return /["'$()+]/.test(expanded) ? undefined : expanded;
-}
-
-// Running Gradle is slow, so only evaluate Kotlin DSL scripts that actually set hermesCommand
-async function evaluateKotlinDslHermesCommand(buildFile: string): Promise<string | undefined> {
-  if (!/^[^/\n]*\bhermesCommand\b/m.test(fs.readFileSync(buildFile, "utf8"))) {
-    return undefined;
-  }
-  const { hermesCommand, root } = await runGradlePrintTask(buildFile, PRINT_REACT_CONFIG);
-  return hermesCommand && root ? path.resolve(root, hermesCommand) : undefined;
 }
 
 async function parseGroovyDslVersion(buildFile: string): Promise<GradleVersionFields> {
@@ -199,35 +159,27 @@ async function parseGroovyDslVersion(buildFile: string): Promise<GradleVersionFi
 }
 
 async function evaluateKotlinDslVersion(buildFile: string): Promise<GradleVersionFields> {
-  try {
-    return await runGradlePrintTask(buildFile, PRINT_VERSION);
-  } catch (error) {
-    throw new Error(`${error.message}\n${FALLBACK_HINT}`);
-  }
-}
-
-/** Runs the project's Gradle wrapper with an injected task and returns the JSON it prints. */
-async function runGradlePrintTask(buildFile: string, printJson: string): Promise<any> {
-  // android/<module>/build.gradle.kts
+  // The build file lives in the application module folder (typically android/app);
+  // its parent is the Gradle project root, and the folder name is the module name.
   const moduleName = path.basename(path.dirname(path.resolve(buildFile)));
   const androidDir = path.resolve(buildFile, "..", "..");
   const gradlew = path.join(androidDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   if (!fileExists(gradlew)) {
-    throw new Error(`No Gradle wrapper found at "${gradlew}", required to evaluate "${buildFile}".`);
+    throw new Error(`No Gradle wrapper found at "${gradlew}", required to evaluate "${buildFile}". ${FALLBACK_HINT}`);
   }
 
   const initScript = path.join(os.tmpdir(), `revopush-init-${process.pid}.gradle`);
 
-  fs.writeFileSync(initScript, printInitScript(moduleName, printJson), "utf8");
+  fs.writeFileSync(initScript, printVersionInitScript(moduleName), "utf8");
   try {
     const { stdout } = await exec(
-      `"${gradlew}" --project-dir "${androidDir}" --init-script "${initScript}" -q :${moduleName}:${PRINT_TASK}`,
+      `"${gradlew}" --project-dir "${androidDir}" --init-script "${initScript}" -q :${moduleName}:${PRINT_VERSION_TASK}`,
       { timeout: 120000 }
     );
-    // Configuration output may precede the JSON line
+    // The task's JSON is the last line; configuration-phase output (plugin notices, printlns) may precede it.
     return JSON.parse(stdout.trim().split(/\r?\n/).pop() ?? "");
   } catch (error) {
-    throw new Error(`Gradle failed while evaluating "${buildFile}": ${error.message}`);
+    throw new Error(`Gradle failed while reading the version from "${buildFile}": ${error.message}\n${FALLBACK_HINT}`);
   } finally {
     fs.rmSync(initScript, { force: true });
   }

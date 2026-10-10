@@ -1,4 +1,4 @@
-// Whether Hermes is enabled, which hermesc React Native's own build uses, and its bytecode version.
+// Hermes detection, hermesc lookup and bytecode version checks
 
 import * as childProcess from "child_process";
 import * as fs from "fs";
@@ -33,7 +33,7 @@ function isHermesDefaultEngine(): boolean {
   return !!reactNativeVersion && gte(reactNativeVersion, "0.70.0");
 }
 
-// pod install writes the USE_HERMES build setting that react-native-xcode.sh checks into the app's Xcode project
+// USE_HERMES build setting written by pod install, checked by react-native-xcode.sh
 function getXcodeProjectHermesEnabled(podFile?: string): boolean | undefined {
   const iosDir = path.dirname(podFile || path.join("ios", "Podfile"));
   const projects = fs.existsSync(iosDir) ? fs.readdirSync(iosDir).filter((file) => file.endsWith(".xcodeproj")) : [];
@@ -45,7 +45,7 @@ function getXcodeProjectHermesEnabled(podFile?: string): boolean | undefined {
   return undefined;
 }
 
-// `:hermes_enabled => true/false` in the Podfile; undefined if unset
+// `:hermes_enabled => true/false` in the Podfile
 function getPodfileHermesEnabled(podFile?: string): boolean | undefined {
   const podfilePath = podFile || path.join("ios", "Podfile");
   if (fileDoesNotExistOrIsDirectory(podfilePath)) {
@@ -56,17 +56,15 @@ function getPodfileHermesEnabled(podFile?: string): boolean | undefined {
   return match ? match[1] === "true" : undefined;
 }
 
-/**
- * Finds the hermesc React Native's own build uses, in the same order:
- * Android: gradle-plugin PathUtils.detectOSAwareHermesCommand; iOS: scripts/react-native-xcode.sh.
- */
+/** The hermesc RN's build uses: Gradle plugin PathUtils.detectOSAwareHermesCommand, iOS react-native-xcode.sh */
 export async function findHermesc(platform: string, gradleFile?: string, podFile?: string): Promise<string> {
-  const configured = platform === "ios" ? getConfiguredIosHermesc(podFile) : await getConfiguredAndroidHermesc(gradleFile);
+  const configured =
+    platform === "ios" ? getConfiguredIosHermesc(podFile) : getGradleHermesCommand(gradleFile)?.replace("%OS-BIN%", OS_BIN);
   if (configured) return configured;
 
   const reactNativePath = getReactNativePackagePath();
-  // RN <= 0.82 ships sdks/hermesc, RN 0.83+ only hermes-compiler. RN 0.82's hermes-compiler is an empty placeholder
-  // unless the app opts into Hermes V1, which Android also has to enable with hermesV1Enabled.
+  // RN <= 0.82 ships sdks/hermesc, 0.83+ hermes-compiler. On 0.82, hermes-compiler is an empty placeholder unless
+  // the app opts into Hermes V1 (Android also needs hermesV1Enabled)
   const bundledHermesc = path.join(reactNativePath, "sdks", "hermesc", OS_BIN, exe("hermesc"));
   const hermesCompiler = resolvePackageFile("hermes-compiler", reactNativePath, "hermesc", OS_BIN, exe("hermesc"));
   const preferBundled = platform === "android" && readGradleProperty("hermesV1Enabled", gradleFile) !== "true";
@@ -75,7 +73,7 @@ export async function findHermesc(platform: string, gradleFile?: string, podFile
   const candidates = [
     platform === "ios" ? getCocoaPodsHermesc(podFile) : getSourceBuiltAndroidHermesc(reactNativePath),
     ...packagedHermesc,
-    // RN < 0.69 shipped hermesc in the hermes-engine package (named "hermes" before RN 0.64) or in hermesvm
+    // RN < 0.69: hermes-engine (binary named "hermes" before 0.64) or hermesvm
     resolvePackageFile("hermes-engine", reactNativePath, OS_BIN, exe("hermesc")),
     resolvePackageFile("hermes-engine", reactNativePath, OS_BIN, exe("hermes")),
     resolvePackageFile("hermesvm", reactNativePath, OS_BIN, exe("hermes")),
@@ -88,17 +86,7 @@ export async function findHermesc(platform: string, gradleFile?: string, podFile
   throw new Error(`Unable to find hermesc. Set ${setting} to the path of the hermesc binary.`);
 }
 
-async function getConfiguredAndroidHermesc(gradleFile?: string): Promise<string | undefined> {
-  try {
-    return (await getGradleHermesCommand(gradleFile))?.replace("%OS-BIN%", OS_BIN);
-  } catch (error) {
-    log(chalk.yellow(`\nWarning: Unable to read hermesCommand from Gradle, using the default hermesc. ${error.message}\n`));
-    return undefined;
-  }
-}
-
-// react-native-xcode.sh gets HERMES_CLI_PATH from .xcode.env(.local), the environment, or the Pods xcconfig,
-// where the hermes-engine pod writes it at pod install. Values may reference $PODS_ROOT or other variables.
+// As react-native-xcode.sh sees it: .xcode.env(.local), the environment, or the Pods xcconfig written by pod install
 function getConfiguredIosHermesc(podFile?: string): string | undefined {
   const hermesCliPath = getXcodeDotEnvValue("HERMES_CLI_PATH") ?? getPodsXcconfigValue("HERMES_CLI_PATH", podFile);
   const variables: Record<string, string | undefined> = { PODS_ROOT: getPodsDir(podFile), ...process.env };
@@ -142,7 +130,7 @@ function getSourceBuiltAndroidHermesc(reactNativePath: string): string {
     : path.join(reactNativePath, "ReactAndroid", "hermes-engine", "build", "hermes", "bin", exe("hermesc"));
 }
 
-// Resolved from react-native, as they may not be hoisted
+// Resolved from react-native, since they may not be hoisted
 function resolvePackageFile(packageName: string, reactNativePath: string, ...segments: string[]): string | undefined {
   try {
     const packageJson = require.resolve(`${packageName}/package.json`, { paths: [reactNativePath] });
@@ -152,7 +140,7 @@ function resolvePackageFile(packageName: string, reactNativePath: string, ...seg
   }
 }
 
-// Hermes bytecode header (BytecodeFileFormat.h): uint64 magic, uint32 version, little-endian; stable since Hermes v0.1
+// Hermes bytecode header (BytecodeFileFormat.h): uint64 magic, uint32 version, little-endian
 const BYTECODE_MAGIC = BigInt("0x1F1903C103BC1FC6");
 const BYTECODE_HEADER_SIZE = 12;
 
@@ -172,13 +160,13 @@ function readFileHeader(file: string, size: number): Buffer {
   }
 }
 
-/** Compiles an empty input to stdout and reads the bytecode version from the emitted header. */
+/** Compiles empty input and reads the version from the emitted header */
 export function getHermescBytecodeVersion(hermesc: string): number | undefined {
   const result = childProcess.spawnSync(hermesc, ["-emit-binary", "-"], { input: "", timeout: 30000 });
   return result.status === 0 ? readBytecodeVersion(result.stdout) : undefined;
 }
 
-/** hermesc -base-bytecode aborts on a base of another bytecode version. The base only optimizes diffs, so it can be skipped. */
+/** -base-bytecode fails on another bytecode version; the base only shrinks diffs, so it's safe to skip */
 export function isBaseBytecodeCompatible(baseBytecode: string, hermesc: string): boolean {
   const baseVersion = readBytecodeVersion(readFileHeader(baseBytecode, BYTECODE_HEADER_SIZE));
   if (baseVersion === undefined) {

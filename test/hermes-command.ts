@@ -61,64 +61,17 @@ describe("Hermes command resolution", () => {
     assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "android", "my-custom-hermesc", "bin", "hermesc"));
   });
 
-  it("resolves a legacy project.ext.react hermesCommand against the app module", async () => {
+  it("reads a literal hermesCommand from a Kotlin DSL build script", async () => {
     bundledHermesc();
-    createFile("android/app/build.gradle", 'project.ext.react = [\n    hermesCommand: "../../custom/%OS-BIN%/hermesc"\n]\n');
+    fs.rmSync(path.join(projectDirectory, "android", "app", "build.gradle"));
+    createFile("android/app/build.gradle.kts", 'react {\n    hermesCommand.set("custom/%OS-BIN%/hermesc")\n}\n');
     assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
   });
 
-  it("reads legacy project.ext.react entries that follow a trailing comment", async () => {
-    bundledHermesc();
-    createFile(
-      "android/app/build.gradle",
-      'project.ext.react = [\n    enableHermes: true,  // clean and rebuild if changing\n    hermesCommand: "../../custom/%OS-BIN%/hermesc"\n]\n'
-    );
-    assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
-  });
-
-  it("resolves hermesCommand against a literal react.root", async () => {
-    bundledHermesc();
-    createFile("android/app/build.gradle", 'react {\n    root = file("../../app-root")\n    hermesCommand = "custom/hermesc"\n}\n');
-    assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "app-root", "custom", "hermesc"));
-  });
-
-  describe("Kotlin DSL", () => {
-    const gradleRun = () => path.join(projectDirectory, "gradle-ran");
-
-    // Stands in for the Gradle wrapper: records that it ran and prints the evaluated react { } config
-    function createGradlew(script: string) {
-      fs.rmSync(path.join(projectDirectory, "android", "app", "build.gradle"));
-      createFile("android/gradlew", `#!/bin/sh\ntouch "${gradleRun()}"\n${script}\n`);
-      fs.chmodSync(path.join(projectDirectory, "android", "gradlew"), 0o755);
-    }
-
-    it("evaluates hermesCommand with Gradle and resolves it against react.root", async () => {
-      bundledHermesc();
-      createGradlew(`echo '{"hermesCommand":"custom/%OS-BIN%/hermesc","root":"${projectDirectory}"}'`);
-      createFile("android/app/build.gradle.kts", 'react {\n    hermesCommand = "custom/%OS-BIN%/hermesc"\n}\n');
-      assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
-    });
-
-    it("does not run Gradle when the build script doesn't set hermesCommand", async () => {
-      const bundled = bundledHermesc();
-      createGradlew("exit 1");
-      createFile("android/app/build.gradle.kts", 'react {\n    // hermesCommand = "custom/hermesc"\n}\n');
-      assert.strictEqual(fs.realpathSync(await findHermesc("android")), bundled);
-      assert.strictEqual(fs.existsSync(gradleRun()), false);
-    });
-
-    it("warns and falls back to the default hermesc when Gradle fails", async () => {
-      const bundled = bundledHermesc();
-      const log = sinon.stub(cmdexec, "log");
-      try {
-        createGradlew("exit 1");
-        createFile("android/app/build.gradle.kts", 'react {\n    hermesCommand = "custom/hermesc"\n}\n');
-        assert.strictEqual(fs.realpathSync(await findHermesc("android")), bundled);
-        sinon.assert.calledWithMatch(log, sinon.match(/Gradle failed/));
-      } finally {
-        log.restore();
-      }
-    });
+  it("ignores a commented-out hermesCommand", async () => {
+    const bundled = bundledHermesc();
+    createFile("android/app/build.gradle", 'react {\n    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"\n}\n');
+    assert.strictEqual(fs.realpathSync(await findHermesc("android")), bundled);
   });
 
   it("ignores a computed hermesCommand expression such as Expo's", async () => {
