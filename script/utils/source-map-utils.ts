@@ -1,22 +1,9 @@
-// Licensed under the MIT License.
-
 import * as fs from "fs";
 
-/** Top-level fields of a source map document. */
-export type SourceMapFields = Record<string, unknown>;
-
-/**
- * Fields whose meaning is positional - they index into `sources`/`mappings` or describe the bundle's layout.
- * compose rewrites all of them against the composed map, so a packager value can only contradict the result:
- * `sourceRoot` would be re-applied on top of paths compose already resolved against it, and an ignore list
- * would point at the packager's source indices rather than the composed map's.
- *
- * Everything else is a free-standing label (a debug id, a build id, an arbitrary vendor blob) and is safe to
- * carry over. Sources: the source map spec for the standard names, metro-source-map's composeSourceMaps and
- * react-native's compose-source-maps.js for the `x_` extensions.
- */
-const POSITIONAL_SOURCE_MAP_FIELDS: ReadonlySet<string> = new Set([
-  // Source map spec (both the plain and the indexed `sections` form).
+// Fields that index into `sources`/`mappings` or describe the bundle layout. compose rewrites them against the
+// composed map, so a packager value would contradict it (an ignore list would point at the packager's sources).
+// Sources: the source map spec, metro-source-map's composeSourceMaps and react-native's compose-source-maps.js.
+const POSITIONAL_FIELDS: ReadonlySet<string> = new Set([
   "version",
   "file",
   "sourceRoot",
@@ -26,7 +13,6 @@ const POSITIONAL_SOURCE_MAP_FIELDS: ReadonlySet<string> = new Set([
   "mappings",
   "ignoreList",
   "sections",
-  // metro / Hermes / RAM bundle extensions.
   "x_google_ignoreList",
   "x_facebook_sources",
   "x_facebook_offsets",
@@ -34,40 +20,23 @@ const POSITIONAL_SOURCE_MAP_FIELDS: ReadonlySet<string> = new Set([
   "x_hermes_function_offsets",
 ]);
 
-export function readSourceMapFields(sourceMapPath: string): SourceMapFields {
-  const sourceMap: unknown = JSON.parse(fs.readFileSync(sourceMapPath, "utf8"));
-  if (typeof sourceMap !== "object" || sourceMap === null || Array.isArray(sourceMap)) {
-    throw new Error(`${sourceMapPath} is not a source map object`);
-  }
-  return sourceMap as SourceMapFields;
-}
-
 /**
- * react-native's compose-source-maps.js builds the composed map out of the structural fields it knows about,
- * so metadata a custom Metro serializer added to the packager map is dropped - most notably the debug id that
- * crash reporters use to match a shipped bundle to its uploaded source map.
- *
- * Copies that metadata back into the composed map, never overwriting a value compose itself produced and never
- * touching a positional field. Returns the names of the restored fields.
+ * compose-source-maps.js keeps only the fields it knows, dropping metadata such as the `debugId` crash reporters use
+ * to match a bundle to its source map. Copies the packager map's other top-level fields into the composed map without
+ * overwriting anything compose produced. Returns the restored field names.
  */
-export function restoreSourceMapFields(composedSourceMapPath: string, packagerFields: SourceMapFields): string[] {
-  const metadataFields = Object.keys(packagerFields).filter((field) => !POSITIONAL_SOURCE_MAP_FIELDS.has(field));
-  if (metadataFields.length === 0) {
-    // Nothing worth restoring, so do not pay for parsing the composed map at all - it can be hundreds of megabytes.
-    return [];
-  }
+export function restoreSourceMapMetadata(composedSourceMap: string, packagerSourceMap: Record<string, unknown>): string[] {
+  const metadataFields = Object.keys(packagerSourceMap).filter((field) => !POSITIONAL_FIELDS.has(field));
+  // Skips parsing the composed map, which can be hundreds of megabytes, when there is nothing to restore
+  if (metadataFields.length === 0) return [];
 
-  const composedFields = readSourceMapFields(composedSourceMapPath);
-  const restoredFields = metadataFields.filter((field) => !Object.hasOwn(composedFields, field));
-
-  if (restoredFields.length === 0) {
-    return [];
-  }
+  const composed = JSON.parse(fs.readFileSync(composedSourceMap, "utf8"));
+  const restoredFields = metadataFields.filter((field) => !Object.hasOwn(composed, field));
+  if (restoredFields.length === 0) return [];
 
   for (const field of restoredFields) {
-    composedFields[field] = packagerFields[field];
+    composed[field] = packagerSourceMap[field];
   }
-
-  fs.writeFileSync(composedSourceMapPath, JSON.stringify(composedFields));
+  fs.writeFileSync(composedSourceMap, JSON.stringify(composed));
   return restoredFields;
 }

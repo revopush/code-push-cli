@@ -34,11 +34,11 @@ import {
   getBundleSourceMapOutput,
   getMinifyParams,
   getReactNativePackagePath,
-  isHermesEnabled,
   isValidVersion,
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
+import { isHermesEnabled } from "./utils/hermes-utils";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractArchive } from "./utils/file-utils";
 import { getAndroidVersionInfo } from "./utils/gradle-utils";
 import {
@@ -1139,7 +1139,8 @@ export const runExpoExportEmbedCommand = async (
   outputFolder: string,
   sourcemapOutputFolder: string,
   platform: string,
-  extraBundlerOptions: string[]
+  extraBundlerOptions: string[],
+  isHermes: boolean
 ) => {
   const expoBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -1169,8 +1170,7 @@ export const runExpoExportEmbedCommand = async (
   if (sourcemapOutputFolder) {
     let bundleSourceMapOutput = sourcemapOutputFolder;
     if (!sourcemapOutputFolder.endsWith(".map")) {
-      // user defined directory, нужно вычислить полный путь
-      bundleSourceMapOutput = await getBundleSourceMapOutput(command, bundleName, sourcemapOutputFolder);
+      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes);
     }
 
     expoBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
@@ -1359,6 +1359,7 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
     })
     .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
     .then(async () => {
+      const isHermes = await isHermesEnabled(command, platform);
       await runExpoExportEmbedCommand(
         command,
         bundleName,
@@ -1367,11 +1368,9 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
         outputFolder,
         sourcemapOutputFolder,
         platform,
-        command.extraBundlerOptions
+        command.extraBundlerOptions,
+        isHermes
       );
-    })
-    .then(async () => {
-      const isHermes = await isHermesEnabled(command, platform);
 
       if (isHermes) {
         await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
@@ -1472,6 +1471,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       // https://github.com/facebook/react-native/issues/4289
       .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
       .then(async () => {
+        const isHermes = await isHermesEnabled(command, platform);
         await runReactNativeBundleCommand(
           command,
           bundleName,
@@ -1480,11 +1480,9 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           outputFolder,
           sourcemapOutputFolder,
           platform,
-          command.extraBundlerOptions
+          command.extraBundlerOptions,
+          isHermes
         );
-      })
-      .then(async () => {
-        const isHermes = await isHermesEnabled(command, platform);
 
         if (isHermes) {
           await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
@@ -1822,7 +1820,8 @@ export const runReactNativeBundleCommand = async (
   outputFolder: string,
   sourcemapOutputFolder: string,
   platform: string,
-  extraBundlerOptions: string[]
+  extraBundlerOptions: string[],
+  isHermes: boolean
 ) => {
   const reactNativeBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -1854,14 +1853,13 @@ export const runReactNativeBundleCommand = async (
   if (sourcemapOutputFolder) {
     let bundleSourceMapOutput = sourcemapOutputFolder;
     if (!sourcemapOutputFolder.endsWith(".map")) {
-      // user defined full path to source map. let's use that instead
-      bundleSourceMapOutput = await getBundleSourceMapOutput(command, bundleName, sourcemapOutputFolder);
+      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes);
     }
 
     reactNativeBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
   }
 
-  const minifyValue = await getMinifyParams(command);
+  const minifyValue = getMinifyParams(platform, isHermes);
   Array.prototype.push.apply(reactNativeBundleArgs, minifyValue);
 
   if (extraBundlerOptions.length > 0) {
