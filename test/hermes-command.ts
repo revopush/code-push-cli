@@ -32,7 +32,6 @@ describe("Hermes command resolution", () => {
     originalCwd = process.cwd();
     originalEnv = { ...process.env };
     delete process.env.HERMES_CLI_PATH;
-    delete process.env.REACT_NATIVE_OVERRIDE_HERMES_DIR;
     projectDirectory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "revopush-hermesc-")));
     createFile("node_modules/react-native/package.json", JSON.stringify({ name: "react-native", version: "0.83.0" }));
     createFile("android/app/build.gradle", "react {\n}\n");
@@ -112,56 +111,31 @@ describe("Hermes command resolution", () => {
     assert.strictEqual(fs.realpathSync(await findHermesc("android")), compiler);
   });
 
-  it("uses hermesc built from source via REACT_NATIVE_OVERRIDE_HERMES_DIR", async () => {
-    bundledHermesc();
-    const built = createFile(`hermes/build/bin/${HERMESC}`);
-    process.env.REACT_NATIVE_OVERRIDE_HERMES_DIR = path.join(projectDirectory, "hermes");
-    assert.strictEqual(await findHermesc("android"), built);
-  });
-
-  it("uses HERMES_CLI_PATH, then the CocoaPods hermesc, on iOS", async () => {
+  it("uses HERMES_CLI_PATH on iOS", async () => {
     hermesCompiler();
-    const podHermesc = createFile("ios/Pods/hermes-engine/destroot/bin/hermesc");
-    assert.strictEqual(fs.realpathSync(await findHermesc("ios")), podHermesc);
-
     process.env.HERMES_CLI_PATH = "/custom/hermesc";
     assert.strictEqual(await findHermesc("ios"), "/custom/hermesc");
   });
 
-  it("prefers hermes-compiler on iOS without CocoaPods, skipping RN 0.82's empty placeholder package", async () => {
+  it("reads HERMES_CLI_PATH from ios/.xcode.env.local", async () => {
+    createFile("ios/.xcode.env", "export HERMES_CLI_PATH=/env/hermesc\n");
+    createFile("ios/.xcode.env.local", "export HERMES_CLI_PATH=/xcode/hermesc\n");
+    assert.strictEqual(await findHermesc("ios"), "/xcode/hermesc");
+  });
+
+  it("ignores a HERMES_CLI_PATH that references Xcode variables", async () => {
+    const compiler = hermesCompiler();
+    createFile("ios/.xcode.env", 'export HERMES_CLI_PATH="$PODS_ROOT/custom/hermesc"\n');
+    assert.strictEqual(fs.realpathSync(await findHermesc("ios")), compiler);
+  });
+
+  it("prefers hermes-compiler on iOS, skipping RN 0.82's empty placeholder package", async () => {
     const bundled = bundledHermesc();
     createFile("node_modules/hermes-compiler/package.json", JSON.stringify({ name: "hermes-compiler", version: "0.0.0" }));
     assert.strictEqual(fs.realpathSync(await findHermesc("ios")), bundled);
 
     const compiler = hermesCompiler();
     assert.strictEqual(fs.realpathSync(await findHermesc("ios")), compiler);
-  });
-
-  it("falls back to hermes-compiler on iOS when react-native has no bundled hermesc", async () => {
-    const compiler = hermesCompiler();
-    assert.strictEqual(fs.realpathSync(await findHermesc("ios")), compiler);
-  });
-
-  it("reads HERMES_CLI_PATH from ios/.xcode.env.local", async () => {
-    createFile("ios/.xcode.env.local", "export HERMES_CLI_PATH=/xcode/hermesc\n");
-    assert.strictEqual(await findHermesc("ios"), "/xcode/hermesc");
-  });
-
-  it("uses HERMES_CLI_PATH written into the Pods xcconfig by pod install", async () => {
-    createFile("ios/Pods/hermes-engine/destroot/bin/hermesc");
-    createFile(
-      "ios/Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig",
-      "PODS_ROOT = ${SRCROOT}/Pods\nHERMES_CLI_PATH = $(PODS_ROOT)/../../node_modules/hermes-compiler/hermesc/osx-bin/hermesc\n"
-    );
-    assert.strictEqual(path.resolve(await findHermesc("ios")), path.resolve("node_modules/hermes-compiler/hermesc/osx-bin/hermesc"));
-
-    createFile("ios/.xcode.env", "export HERMES_CLI_PATH=/xcode/hermesc\n");
-    assert.strictEqual(await findHermesc("ios"), "/xcode/hermesc");
-  });
-
-  it("expands $PODS_ROOT in HERMES_CLI_PATH", async () => {
-    createFile("ios/.xcode.env", 'export HERMES_CLI_PATH="$PODS_ROOT/custom/hermesc"\n');
-    assert.strictEqual(await findHermesc("ios"), path.join("ios", "Pods", "custom", "hermesc"));
   });
 
   it("finds the hermes binary of RN < 0.64's hermes-engine package", async () => {

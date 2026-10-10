@@ -73,7 +73,7 @@ export async function runHermesEmitBinaryCommand(
 ): Promise<void> {
   const bundle = path.join(outputFolder, bundleName);
   const bytecode = bundle + ".hbc";
-  const hermesc = await findHermesc(command.platform, gradleFile, command.podFile);
+  const hermesc = await findHermesc(command.platform, gradleFile);
 
   const hermesArgs = [
     ...(process.env.CODE_PUSH_NODE_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []),
