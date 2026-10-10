@@ -61,8 +61,8 @@ export async function getAndroidVersionInfo(gradleFile?: string | null): Promise
   if (!buildFile) {
     throw new Error(`Unable to find gradle file "${gradleFile ?? DEFAULT_APP_DIR}".`);
   }
-  const { versionName, versionCode } = isKotlinDsl(buildFile)
-    ? await evaluateKotlinDslVersion(buildFile)
+  const { versionName, versionCode } = buildFile.endsWith(".kts")
+    ? await evaluateKotlinDslBuildFile(buildFile)
     : await parseGroovyDslVersion(buildFile);
 
   const appVersion = resolveAppVersion(versionName, buildFile);
@@ -80,7 +80,7 @@ export async function getAndroidVersionInfo(gradleFile?: string | null): Promise
 export async function getGradleHermesEnabled(gradleFile?: string | null): Promise<boolean | undefined> {
   let enabled = readGradleProperty("hermesEnabled", gradleFile) ?? readGradleProperty("react.hermesEnabled", gradleFile);
   const buildFile = findGradleBuildFile(gradleFile);
-  if (enabled === undefined && buildFile && !isKotlinDsl(buildFile)) {
+  if (enabled === undefined && buildFile && !buildFile.endsWith(".kts")) {
     const parsed = await parseGroovyDslBuildFile(buildFile).catch((): any => ({}));
     enabled = getLegacyReactProperty(parsed, "enableHermes");
   }
@@ -123,10 +123,6 @@ function findGradleBuildFile(gradleFile?: string | null): string | undefined {
   );
 }
 
-function isKotlinDsl(buildFile: string): boolean {
-  return buildFile.endsWith(".kts");
-}
-
 function parseGroovyDslBuildFile(buildFile: string): Promise<any> {
   return g2js.parseFile(buildFile).catch(() => {
     throw new Error(`Unable to parse the "${buildFile}" file. Please ensure it is a well-formed Gradle file.`);
@@ -158,7 +154,7 @@ async function parseGroovyDslVersion(buildFile: string): Promise<GradleVersionFi
   };
 }
 
-async function evaluateKotlinDslVersion(buildFile: string): Promise<GradleVersionFields> {
+async function evaluateKotlinDslBuildFile(buildFile: string): Promise<GradleVersionFields> {
   // The build file lives in the application module folder (typically android/app);
   // its parent is the Gradle project root, and the folder name is the module name.
   const moduleName = path.basename(path.dirname(path.resolve(buildFile)));

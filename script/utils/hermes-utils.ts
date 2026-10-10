@@ -10,7 +10,7 @@ import * as cli from "../types/cli";
 import { log } from "../command-executor";
 import { fileExists } from "./file-utils";
 import { getGradleHermesCommand, getGradleHermesEnabled, readGradleProperty } from "./gradle-utils";
-import { getReactNativePackagePath, getReactNativeVersion, getXcodeDotEnvValue } from "./react-native-project-utils";
+import { getReactNativePackagePath, getReactNativeVersion, getXcodeDotEnvValue } from "../react-native-utils";
 
 const OS_BIN = ({ win32: "win64-bin", darwin: "osx-bin" } as Record<string, string>)[process.platform] ?? "linux64-bin";
 

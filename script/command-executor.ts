@@ -33,12 +33,12 @@ import {
 import {
   getBundleSourceMapOutput,
   getMinifyParams,
+  getReactNativePackagePath,
   isValidVersion,
   runHermesEmitBinaryCommand,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
 import { isHermesEnabled } from "./utils/hermes-utils";
-import { getReactNativePackagePath } from "./utils/react-native-project-utils";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractArchive } from "./utils/file-utils";
 import { getAndroidVersionInfo } from "./utils/gradle-utils";
 import {
