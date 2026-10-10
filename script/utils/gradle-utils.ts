@@ -1,7 +1,5 @@
-// Detects the Android versionName/versionCode a CodePush release should target.
-// Groovy DSL (build.gradle) is parsed statically; Kotlin DSL (build.gradle.kts) may
-// compute values from arbitrary expressions, so it is evaluated by running the
-// project's Gradle wrapper with an injected task that prints the resolved values.
+// Reads the Android app's version and Hermes settings. Groovy DSL is parsed statically; Kotlin DSL versions are
+// evaluated by running the Gradle wrapper with an injected task that prints them.
 
 import * as childProcess from "child_process";
 import * as fs from "fs";
@@ -29,6 +27,7 @@ interface GradleVersionFields {
   versionCode: string | number | null;
 }
 
+const DEFAULT_APP_DIR = path.join("android", "app");
 const FALLBACK_HINT = "Pass the version explicitly with --targetBinaryVersion to skip Gradle detection.";
 
 // "revopush"-prefixed to avoid collisions with project tasks; written in Groovy,
@@ -55,15 +54,19 @@ allprojects {
 }
 `.trim();
 
-/** @param gradleFile build script path or its directory; defaults to "android/app". */
+// Every `gradleFile` parameter below is the app's build script or its directory; defaults to "android/app".
+
 export async function getAndroidVersionInfo(gradleFile?: string | null): Promise<AndroidVersionInfo> {
-  const buildFile = resolveGradleBuildFile(gradleFile ?? path.join("android", "app"));
+  const buildFile = findGradleBuildFile(gradleFile);
+  if (!buildFile) {
+    throw new Error(`Unable to find gradle file "${gradleFile ?? DEFAULT_APP_DIR}".`);
+  }
   const { versionName, versionCode } = buildFile.endsWith(".kts")
     ? await evaluateKotlinDslBuildFile(buildFile)
-    : await parseGroovyDslBuildFile(buildFile);
+    : await parseGroovyDslVersion(buildFile);
 
   const appVersion = resolveAppVersion(versionName, buildFile);
-  const buildNumber = resolveBuildNumber(versionCode);
+  const buildNumber = resolveBuildNumber(versionCode, buildFile);
   if (!buildNumber) {
     console.log(chalk.yellow(
       `Warning: Unable to read "android.defaultConfig.versionCode" from "${buildFile}". ` +
@@ -73,20 +76,68 @@ export async function getAndroidVersionInfo(gradleFile?: string | null): Promise
   return { appVersion, buildNumber };
 }
 
-/** Locates the build script: the given file itself, or inside the given directory (Kotlin DSL preferred). */
-function resolveGradleBuildFile(gradleFile: string): string {
-  const candidates = [gradleFile, path.join(gradleFile, "build.gradle.kts"), path.join(gradleFile, "build.gradle")];
-  const buildFile = candidates.find(fileExists);
-  if (!buildFile) {
-    throw new Error(`Unable to find gradle file "${gradleFile}".`);
+/** `hermesEnabled` / `react.hermesEnabled`, or RN < 0.71's `enableHermes`; undefined if unset */
+export async function getGradleHermesEnabled(gradleFile?: string | null): Promise<boolean | undefined> {
+  let enabled = readGradleProperty("hermesEnabled", gradleFile) ?? readGradleProperty("react.hermesEnabled", gradleFile);
+  const buildFile = findGradleBuildFile(gradleFile);
+  if (enabled === undefined && buildFile && !buildFile.endsWith(".kts")) {
+    const parsed = await parseGroovyDslBuildFile(buildFile).catch((): any => ({}));
+    enabled = getLegacyReactProperty(parsed, "enableHermes");
   }
-  return buildFile;
+  return enabled === undefined ? undefined : enabled.toLowerCase() === "true";
 }
 
-async function parseGroovyDslBuildFile(buildFile: string): Promise<GradleVersionFields> {
-  const parsed: any = await g2js.parseFile(buildFile).catch(() => {
+/** A literal `hermesCommand`, resolved from the project root like the RN Gradle plugin; expressions are ignored */
+export function getGradleHermesCommand(gradleFile?: string | null): string | undefined {
+  const buildFile = findGradleBuildFile(gradleFile);
+  const buildScript = buildFile ? fs.readFileSync(buildFile, "utf8") : "";
+  const hermesCommand = /^\s*hermesCommand\s*(?:=|\.set\()\s*["']([^"']+)["']\s*\)?\s*$/m.exec(buildScript)?.[1];
+  if (!hermesCommand) return undefined;
+
+  const androidDir = path.resolve(path.dirname(buildFile), "..");
+  const expanded = hermesCommand.replace(/^\$\{?rootDir\}?/, androidDir);
+  return expanded.includes("$") ? undefined : path.resolve(androidDir, "..", expanded);
+}
+
+/** A property from the app module's or the Android project's gradle.properties. */
+export function readGradleProperty(key: string, gradleFile?: string | null): string | undefined {
+  const appDir = getAppDir(gradleFile);
+  for (const file of [path.join(appDir, "gradle.properties"), path.join(appDir, "..", "gradle.properties")]) {
+    if (!fileExists(file)) continue;
+    // The properties parser type-converts values (e.g. "2" becomes a number) — normalize back to string.
+    const value = properties.parse(fs.readFileSync(file, "utf8"))?.[key]?.toString();
+    if (value) return value;
+  }
+}
+
+function getAppDir(gradleFile?: string | null): string {
+  const location = gradleFile || DEFAULT_APP_DIR;
+  return fileExists(location) ? path.dirname(location) : location;
+}
+
+/** The build script: the given file itself, or inside the app directory (Kotlin DSL preferred). */
+function findGradleBuildFile(gradleFile?: string | null): string | undefined {
+  const appDir = getAppDir(gradleFile);
+  return [gradleFile, path.join(appDir, "build.gradle.kts"), path.join(appDir, "build.gradle")].find(
+    (file) => file && fileExists(file)
+  );
+}
+
+function parseGroovyDslBuildFile(buildFile: string): Promise<any> {
+  return g2js.parseFile(buildFile).catch(() => {
     throw new Error(`Unable to parse the "${buildFile}" file. Please ensure it is a well-formed Gradle file.`);
   });
+}
+
+// RN < 0.71's `project.ext.react = [key: value]`. g2js prepends a trailing `// comment` to the next entry, so strip it
+function getLegacyReactProperty(parsed: any, key: string): string | undefined {
+  const entries: string[] = parsed["project.ext.react"] || [];
+  const entry = entries.map((prop) => prop.replace(/\/\/.*$/gm, "").trim()).find((prop) => prop.startsWith(`${key}:`));
+  return entry?.slice(key.length + 1).trim().replace(/^["']|["']$/g, "");
+}
+
+async function parseGroovyDslVersion(buildFile: string): Promise<GradleVersionFields> {
+  const parsed = await parseGroovyDslBuildFile(buildFile);
   // g2js yields an array when the file contains multiple 'android' blocks.
   const androidBlocks: any[] = Array.isArray(parsed.android) ? parsed.android : [parsed.android];
   const defaultConfig = androidBlocks.find((block) => block?.defaultConfig)?.defaultConfig;
@@ -135,7 +186,7 @@ function resolveAppVersion(versionName: string | null, buildFile: string): strin
 
   // A value that isn't valid semver and doesn't start with a digit is a property reference.
   const isPropertyRef = !isValidVersion(versionName) && !/^\d/.test(versionName);
-  const appVersion = isPropertyRef ? lookupGradleProperty(versionName.replace("project.", "")) : versionName;
+  const appVersion = isPropertyRef ? readGradleProperty(versionName.replace("project.", ""), buildFile) : versionName;
 
   if (!appVersion || !isValidVersion(appVersion)) {
     throw new Error(
@@ -146,19 +197,9 @@ function resolveAppVersion(versionName: string | null, buildFile: string): strin
   return appVersion;
 }
 
-function resolveBuildNumber(versionCode: string | number | null): string | undefined {
+function resolveBuildNumber(versionCode: string | number | null, buildFile: string): string | undefined {
   const text = versionCode?.toString();
   if (!text) return undefined;
   // A non-numeric value is a reference to a Gradle property (e.g. "project.versionCode").
-  return (/^\d+$/.test(text) ? text : lookupGradleProperty(text.replace("project.", ""))) || undefined;
-}
-
-function lookupGradleProperty(key: string): string | undefined {
-  const files = [path.join("android", "app", "gradle.properties"), path.join("android", "gradle.properties")];
-  for (const file of files) {
-    if (!fileExists(file)) continue;
-    // The properties parser type-converts values (e.g. "2" becomes a number) — normalize back to string.
-    const value = properties.parse(fs.readFileSync(file, "utf8"))?.[key]?.toString();
-    if (value) return value;
-  }
+  return (/^\d+$/.test(text) ? text : readGradleProperty(text.replace("project.", ""), buildFile)) || undefined;
 }
