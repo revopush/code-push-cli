@@ -21,12 +21,14 @@ describe("Source map metadata", () => {
     return sourceMap;
   }
 
-  const readSourceMap = (sourceMap: string) => JSON.parse(fs.readFileSync(sourceMap, "utf8"));
+  function readSourceMap(sourceMap: string): unknown {
+    return JSON.parse(fs.readFileSync(sourceMap, "utf8"));
+  }
 
-  it("restores fields the composer dropped without touching the ones it produced", () => {
+  it("restores fields the composer dropped without touching the ones it produced", async () => {
     const composed = createSourceMap({ version: 3, file: "main.jsbundle.hbc", mappings: "AAAA;AACA", x_google_ignoreList: [] });
 
-    const restored = restoreSourceMapMetadata(composed, {
+    const restored = await restoreSourceMapMetadata(composed, {
       version: 3,
       file: "main.jsbundle",
       mappings: "AAAA;ACAA",
@@ -46,10 +48,10 @@ describe("Source map metadata", () => {
     });
   });
 
-  it("never restores positional fields, which index into the packager's sources", () => {
+  it("never restores positional fields, which index into the packager's sources", async () => {
     const composed = createSourceMap({ version: 3, sources: ["/abs/a.js"], mappings: "AAAA" });
 
-    const restored = restoreSourceMapMetadata(composed, {
+    const restored = await restoreSourceMapMetadata(composed, {
       sourceRoot: "/abs/",
       sections: [],
       ignoreList: [1],
@@ -63,12 +65,12 @@ describe("Source map metadata", () => {
     assert.deepStrictEqual(readSourceMap(composed), { version: 3, sources: ["/abs/a.js"], mappings: "AAAA", debugId: "aaaa-bbbb" });
   });
 
-  it("leaves the composed source map untouched when there is nothing to restore", () => {
+  it("leaves the composed source map untouched when there is nothing to restore", async () => {
     const composed = createSourceMap({ version: 3, file: "main.jsbundle.hbc", debugId: "from-compose" });
     const contents = fs.readFileSync(composed, "utf8");
 
-    assert.deepStrictEqual(restoreSourceMapMetadata(composed, { version: 3 }), []);
-    assert.deepStrictEqual(restoreSourceMapMetadata(composed, { debugId: "from-packager" }), []);
+    assert.deepStrictEqual(await restoreSourceMapMetadata(composed, { version: 3 }), []);
+    assert.deepStrictEqual(await restoreSourceMapMetadata(composed, { debugId: "from-packager" }), []);
     assert.strictEqual(fs.readFileSync(composed, "utf8"), contents);
   });
 });

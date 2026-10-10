@@ -110,9 +110,10 @@ async function composeHermesSourceMaps(
   outputFolder: string,
   sourcemapOutputFolder: string
 ): Promise<void> {
-  // COMPOSE_SOURCEMAP_PATH is react-native-xcode.sh's override: a script taking <packager map> <hbc map> -o <output>
+  // react-native-xcode.sh's override, iOS only; an empty value means unset
   const composeSourceMaps =
-    getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH") ?? path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+    (command.platform === "ios" && getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH")) ||
+    path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
   if (!fs.existsSync(composeSourceMaps)) {
     throw new Error(`Source map compose script ${composeSourceMaps} is not found`);
   }
@@ -132,7 +133,7 @@ async function composeHermesSourceMaps(
   // Read before composing: on iOS the composed map overwrites the packager map
   const packagerSourceMapJson = JSON.parse(await fs.promises.readFile(packagerSourceMap, "utf8"));
   await runCommand("compose-source-maps", "node", [composeSourceMaps, packagerSourceMap, hermesSourceMap, "-o", combinedSourceMap]);
-  const restoredFields = restoreSourceMapMetadata(combinedSourceMap, packagerSourceMapJson);
+  const restoredFields = await restoreSourceMapMetadata(combinedSourceMap, packagerSourceMapJson);
   if (restoredFields.length > 0) {
     console.log(`Restored packager source map metadata: ${restoredFields.join(", ")}`);
   }
