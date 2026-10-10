@@ -5,23 +5,7 @@ import * as dotenv from "dotenv";
 
 export function getReactNativePackagePath(): string {
   const result = childProcess.spawnSync("node", ["--print", "require.resolve('react-native/package.json')"]);
-  const packagePath = path.dirname(result.stdout.toString());
-  if (result.status === 0 && directoryExistsSync(packagePath)) {
-    return packagePath;
-  }
-
-  return path.join("node_modules", "react-native");
-}
-
-function directoryExistsSync(dirname: string): boolean {
-  try {
-    return fs.statSync(dirname).isDirectory();
-  } catch (err) {
-    if (err.code !== "ENOENT") {
-      throw err;
-    }
-  }
-  return false;
+  return result.status === 0 ? path.dirname(result.stdout.toString().trim()) : path.join("node_modules", "react-native");
 }
 
 export function getReactNativeVersion(): string {
