@@ -5,6 +5,7 @@ import * as childProcess from "child_process";
 import { valid } from "semver";
 import { downloadBlob, extractArchive } from "./utils/file-utils";
 import { findHermesc, isBaseBytecodeCompatible } from "./utils/hermes-utils";
+import { restoreSourceMapMetadata } from "./utils/source-map-utils";
 import * as dotenv from "dotenv";
 import * as cli from "./types/cli";
 import { log, sdk } from "./command-executor";
@@ -109,9 +110,13 @@ async function composeHermesSourceMaps(
   outputFolder: string,
   sourcemapOutputFolder: string
 ): Promise<void> {
-  const composeSourceMaps = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+  let composeSourceMaps = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+  // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
+  if (command.platform === "ios") {
+    composeSourceMaps = getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH") || composeSourceMaps;
+  }
   if (!fs.existsSync(composeSourceMaps)) {
-    throw new Error("react-native compose-source-maps.js script is not found");
+    throw new Error(`Source map compose script ${composeSourceMaps} is not found`);
   }
 
   const hermesSourceMap = path.join(outputFolder, bundleName + ".hbc.map");
@@ -126,7 +131,13 @@ async function composeHermesSourceMaps(
     combinedSourceMap = command.platform === "android" ? path.join(sourcemapOutputFolder, bundleName + ".map") : packagerSourceMap;
   }
 
+  // Read before composing: on iOS the composed map overwrites the packager map
+  const packagerSourceMapJson = JSON.parse(await fs.promises.readFile(packagerSourceMap, "utf8"));
   await runCommand("compose-source-maps", "node", [composeSourceMaps, packagerSourceMap, hermesSourceMap, "-o", combinedSourceMap]);
+  const restoredFields = await restoreSourceMapMetadata(combinedSourceMap, packagerSourceMapJson);
+  if (restoredFields.length > 0) {
+    console.log(`Restored packager source map metadata: ${restoredFields.join(", ")}`);
+  }
   // Not part of the release
   await fs.promises.unlink(hermesSourceMap);
 }
