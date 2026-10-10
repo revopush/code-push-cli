@@ -29,16 +29,17 @@ export async function isHermesEnabled(command: cli.IReleaseReactCommand, platfor
 function getIosHermesEnabled(podFile = path.join("ios", "Podfile")): boolean | undefined {
   const iosDir = path.dirname(podFile);
   const xcodeProjects = fs.existsSync(iosDir) ? fs.readdirSync(iosDir).filter((file) => file.endsWith(".xcodeproj")) : [];
-  const sources: [string, RegExp][] = [
-    ...xcodeProjects.map((project): [string, RegExp] => [
-      path.join(iosDir, project, "project.pbxproj"),
-      /\bUSE_HERMES = "?(true|false)"?;/,
-    ]),
-    [podFile, /^[^#\n]*:?hermes_enabled\s*(?:=>|:)\s*(true|false)/m],
-  ];
-  for (const [file, pattern] of sources) {
+  const pbxprojs = xcodeProjects.map((project) => path.join(iosDir, project, "project.pbxproj"));
+  const value =
+    matchInFiles(pbxprojs, /\bUSE_HERMES = "?(true|false)"?;/) ??
+    matchInFiles([podFile], /^[^#\n]*:?hermes_enabled\s*(?:=>|:)\s*(true|false)/m);
+  return value === undefined ? undefined : value === "true";
+}
+
+function matchInFiles(files: string[], pattern: RegExp): string | undefined {
+  for (const file of files) {
     const match = fileExists(file) && pattern.exec(fs.readFileSync(file, "utf8"));
-    if (match) return match[1] === "true";
+    if (match) return match[1];
   }
   return undefined;
 }

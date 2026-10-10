@@ -169,15 +169,9 @@ export function getReactNativePackagePath(): string {
   return result.status === 0 ? path.dirname(result.stdout.toString().trim()) : path.join("node_modules", "react-native");
 }
 
-export function getReactNativeVersion(): string {
-  try {
-    const result = childProcess.spawnSync("node", ["--print", "require('react-native/package.json').version"]);
-    return result.stdout.toString().trim();
-  } catch (error) {
-    throw new Error(
-      'Unable to resolve "react-native". Please make sure it is installed in your project (e.g. "npm install react-native").'
-    );
-  }
+export function getReactNativeVersion(): string | undefined {
+  const packageJson = path.join(getReactNativePackagePath(), "package.json");
+  return fs.existsSync(packageJson) ? JSON.parse(fs.readFileSync(packageJson, "utf8")).version : undefined;
 }
 
 /** As react-native-xcode.sh sees it: ios/.xcode.env.local, then ios/.xcode.env, then the environment */
