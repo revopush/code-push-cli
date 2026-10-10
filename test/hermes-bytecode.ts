@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
-import { getHermesCompilerBytecodeVersion, resolveHermesBaseBytecode } from "../script/react-native-utils";
+import { getHermescBytecodeVersion, isBaseBytecodeCompatible } from "../script/utils/hermes-utils";
 
 function hermesHeader(version: number): Buffer {
   const header = Buffer.alloc(128);
@@ -24,10 +24,15 @@ describe("Hermes base bytecode", () => {
     return bundle;
   }
 
+  // A stand-in hermesc: a node script whose stdout is what `hermesc -emit-binary -` would print
   function createCompiler(script: string): string {
     const compiler = path.join(testDirectory, "hermesc");
     fs.writeFileSync(compiler, `#!/usr/bin/env node\n${script}\n`, { mode: 0o755 });
     return compiler;
+  }
+
+  function compilerEmitting(version: number): string {
+    return createCompiler(`process.stdout.write(Buffer.from("${hermesHeader(version).toString("hex")}", "hex"));`);
   }
 
   beforeEach(() => {
@@ -42,34 +47,32 @@ describe("Hermes base bytecode", () => {
   });
 
   it("reads the compiler bytecode version from the bytecode it emits", () => {
-    const compiler = createCompiler(`process.stdout.write(Buffer.from("${hermesHeader(98).toString("hex")}", "hex"));`);
-    assert.strictEqual(getHermesCompilerBytecodeVersion(compiler), 98);
+    assert.strictEqual(getHermescBytecodeVersion(compilerEmitting(98)), 98);
   });
 
-  it("returns null when the compiler fails or emits something other than Hermes bytecode", () => {
-    assert.strictEqual(getHermesCompilerBytecodeVersion(createCompiler("process.exit(1);")), null);
-    assert.strictEqual(getHermesCompilerBytecodeVersion(createCompiler(`process.stdout.write("var a;");`)), null);
-    assert.strictEqual(getHermesCompilerBytecodeVersion(path.join(testDirectory, "missing-hermesc")), null);
+  it("returns undefined when the compiler fails or emits something other than Hermes bytecode", () => {
+    assert.strictEqual(getHermescBytecodeVersion(createCompiler("process.exit(1);")), undefined);
+    assert.strictEqual(getHermescBytecodeVersion(createCompiler(`process.stdout.write("var a;");`)), undefined);
+    assert.strictEqual(getHermescBytecodeVersion(path.join(testDirectory, "missing-hermesc")), undefined);
   });
 
-  it("keeps the base bytecode when versions match", () => {
-    const bundle = createBundle(hermesHeader(96));
-    assert.strictEqual(resolveHermesBaseBytecode(bundle, 96), bundle);
+  it("uses the base bytecode when versions match", () => {
+    assert.strictEqual(isBaseBytecodeCompatible(createBundle(hermesHeader(96)), compilerEmitting(96)), true);
     sinon.assert.notCalled(log);
   });
 
   it("skips the base bytecode and warns when versions differ", () => {
-    const bundle = createBundle(hermesHeader(96));
-    assert.strictEqual(resolveHermesBaseBytecode(bundle, 98), null);
+    assert.strictEqual(isBaseBytecodeCompatible(createBundle(hermesHeader(96)), compilerEmitting(98)), false);
     sinon.assert.calledWithMatch(log, sinon.match(/v96.*v98/s));
   });
 
   it("skips the base bytecode when the compiler version is unknown", () => {
-    assert.strictEqual(resolveHermesBaseBytecode(createBundle(hermesHeader(96)), null), null);
+    assert.strictEqual(isBaseBytecodeCompatible(createBundle(hermesHeader(96)), createCompiler("process.exit(1);")), false);
   });
 
   it("skips the base bytecode when the base is not Hermes bytecode", () => {
-    assert.strictEqual(resolveHermesBaseBytecode(createBundle("__d(function(){});"), 96), null);
-    assert.strictEqual(resolveHermesBaseBytecode(createBundle(Buffer.from([0xc6, 0x1f])), 96), null);
+    const compiler = compilerEmitting(96);
+    assert.strictEqual(isBaseBytecodeCompatible(createBundle("__d(function(){});"), compiler), false);
+    assert.strictEqual(isBaseBytecodeCompatible(createBundle(Buffer.from([0xc6, 0x1f])), compiler), false);
   });
 });
