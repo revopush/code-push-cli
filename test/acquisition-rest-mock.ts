@@ -3,122 +3,90 @@
 
 import * as querystring from "querystring";
 
-import * as acquisitionSdk from "../script/acquisition-sdk";
+import { Callback, Http } from "../script/acquisition-sdk";
 import * as rest from "../script/types/rest-definitions";
 
+type ResponseCallback = Callback<Http.Response>;
+
 export const validDeploymentKey = "asdfasdfawerqw";
-export const latestPackage = <rest.UpdateCheckResponse>{
-  downloadURL: "http://www.windowsazure.com/blobs/awperoiuqpweru",
-  description: "Angry flappy birds",
-  appVersion: "1.5.0",
-  label: "2.4.0",
-  isMandatory: false,
-  isAvailable: true,
-  updateAppVersion: false,
-  packageHash: "hash240",
-  packageSize: 1024,
-};
-
 export const serverUrl = "http://myurl.com";
-const reportStatusDeployUrl = serverUrl + "/reportStatus/deploy";
-const reportStatusDownloadUrl = serverUrl + "/reportStatus/download";
-const updateCheckUrl = serverUrl + "/updateCheck?";
 
-export class HttpRequester implements acquisitionSdk.Http.Requester {
-  public request(
-    verb: acquisitionSdk.Http.Verb,
-    url: string,
-    requestBodyOrCallback: string | acquisitionSdk.Callback<acquisitionSdk.Http.Response>,
-    callback?: acquisitionSdk.Callback<acquisitionSdk.Http.Response>
-  ): void {
-    if (!callback && typeof requestBodyOrCallback === "function") {
-      callback = <acquisitionSdk.Callback<acquisitionSdk.Http.Response>>requestBodyOrCallback;
-    }
+const updateCheckUrl = `${serverUrl}/updateCheck?`;
+const reportStatusUrls = [`${serverUrl}/reportStatus/deploy`, `${serverUrl}/reportStatus/download`];
 
-    if (verb === acquisitionSdk.Http.Verb.GET && url.indexOf(updateCheckUrl) === 0) {
-      const params = querystring.parse(url.substring(updateCheckUrl.length));
-      Server.onUpdateCheck(params, callback);
-    } else if (verb === acquisitionSdk.Http.Verb.POST && url === reportStatusDeployUrl) {
-      Server.onReportStatus(callback);
-    } else if (verb === acquisitionSdk.Http.Verb.POST && url === reportStatusDownloadUrl) {
-      Server.onReportStatus(callback);
+/** The release the mock server offers for `validDeploymentKey` */
+export function createLatestPackage(overrides: Partial<rest.UpdateCheckResponse> = {}): rest.UpdateCheckResponse {
+  return {
+    downloadURL: "http://www.windowsazure.com/blobs/awperoiuqpweru",
+    description: "Angry flappy birds",
+    appVersion: "1.5.0",
+    label: "2.4.0",
+    isMandatory: false,
+    isAvailable: true,
+    updateAppVersion: false,
+    packageHash: "hash240",
+    packageSize: 1024,
+    ...overrides,
+  };
+}
+
+function lastCallback(requestBodyOrCallback: string | ResponseCallback, callback?: ResponseCallback): ResponseCallback {
+  if (callback) {
+    return callback;
+  }
+  if (typeof requestBodyOrCallback !== "function") {
+    throw new Error("Missing response callback");
+  }
+  return requestBodyOrCallback;
+}
+
+/** Simulates the update-check and status-report endpoints of the server, offering `latestPackage` */
+export class HttpRequester implements Http.Requester {
+  constructor(private readonly latestPackage: rest.UpdateCheckResponse = createLatestPackage()) {}
+
+  public request(verb: Http.Verb, url: string, requestBodyOrCallback: string | ResponseCallback, callback?: ResponseCallback): void {
+    const respond = lastCallback(requestBodyOrCallback, callback);
+
+    if (verb === Http.Verb.GET && url.startsWith(updateCheckUrl)) {
+      respond(null, this.onUpdateCheck(querystring.parse(url.substring(updateCheckUrl.length))));
+    } else if (verb === Http.Verb.POST && reportStatusUrls.includes(url)) {
+      respond(null, { statusCode: 200 });
     } else {
-      throw new Error("Unexpected call");
+      throw new Error(`Unexpected call: ${verb} ${url}`);
     }
+  }
+
+  private onUpdateCheck(params: querystring.ParsedUrlQuery): Http.Response {
+    const deploymentKey = params.deploymentKey as string;
+    const appVersion = params.appVersion as string;
+    if (!deploymentKey || !appVersion) {
+      return { statusCode: 400 };
+    }
+
+    const latest = this.latestPackage;
+    let updateInfo: Partial<rest.UpdateCheckResponse> = { isAvailable: false };
+    if (deploymentKey === validDeploymentKey) {
+      if (params.isCompanion || appVersion === latest.appVersion) {
+        if (params.packageHash !== latest.packageHash) {
+          updateInfo = latest;
+        }
+      } else if (appVersion < latest.appVersion) {
+        updateInfo = { updateAppVersion: true, appVersion: latest.appVersion };
+      }
+    }
+
+    return { statusCode: 200, body: JSON.stringify({ updateInfo }) };
   }
 }
 
-export class CustomResponseHttpRequester implements acquisitionSdk.Http.Requester {
-  response: acquisitionSdk.Http.Response;
+/** Answers every GET request with the same response */
+export class CustomResponseHttpRequester implements Http.Requester {
+  constructor(private readonly response: Http.Response) {}
 
-  constructor(response: acquisitionSdk.Http.Response) {
-    this.response = response;
-  }
-
-  public request(
-    verb: acquisitionSdk.Http.Verb,
-    url: string,
-    requestBodyOrCallback: string | acquisitionSdk.Callback<acquisitionSdk.Http.Response>,
-    callback?: acquisitionSdk.Callback<acquisitionSdk.Http.Response>
-  ): void {
+  public request(_verb: Http.Verb, _url: string, requestBodyOrCallback: string | ResponseCallback): void {
     if (typeof requestBodyOrCallback !== "function") {
       throw new Error("Unexpected request body");
     }
-
-    callback = <acquisitionSdk.Callback<acquisitionSdk.Http.Response>>requestBodyOrCallback;
-    callback(null, this.response);
-  }
-}
-
-class Server {
-  public static onAcquire(params: any, callback: acquisitionSdk.Callback<acquisitionSdk.Http.Response>): void {
-    if (params.deploymentKey !== validDeploymentKey) {
-      callback(/*error=*/ null, {
-        statusCode: 200,
-        body: JSON.stringify({ updateInfo: { isAvailable: false } }),
-      });
-    } else {
-      callback(/*error=*/ null, {
-        statusCode: 200,
-        body: JSON.stringify({ updateInfo: latestPackage }),
-      });
-    }
-  }
-
-  public static onUpdateCheck(params: any, callback: acquisitionSdk.Callback<acquisitionSdk.Http.Response>): void {
-    const updateRequest: rest.UpdateCheckRequest = {
-      deploymentKey: params.deploymentKey,
-      appVersion: params.appVersion,
-      packageHash: params.packageHash,
-      isCompanion: !!params.isCompanion,
-      label: params.label,
-    };
-
-    if (!updateRequest.deploymentKey || !updateRequest.appVersion) {
-      callback(/*error=*/ null, { statusCode: 400 });
-    } else {
-      let updateInfo = <rest.UpdateCheckResponse>{ isAvailable: false };
-      if (updateRequest.deploymentKey === validDeploymentKey) {
-        if (updateRequest.isCompanion || updateRequest.appVersion === latestPackage.appVersion) {
-          if (updateRequest.packageHash !== latestPackage.packageHash) {
-            updateInfo = latestPackage;
-          }
-        } else if (updateRequest.appVersion < latestPackage.appVersion) {
-          updateInfo = <rest.UpdateCheckResponse>(<any>{
-            updateAppVersion: true,
-            appVersion: latestPackage.appVersion,
-          });
-        }
-      }
-
-      callback(/*error=*/ null, {
-        statusCode: 200,
-        body: JSON.stringify({ updateInfo: updateInfo }),
-      });
-    }
-  }
-
-  public static onReportStatus(callback: acquisitionSdk.Callback<acquisitionSdk.Http.Response>): void {
-    callback(/*error*/ null, /*response*/ { statusCode: 200 });
+    requestBodyOrCallback(null, this.response);
   }
 }
