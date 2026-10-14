@@ -1285,7 +1285,6 @@ interface BundlePlan {
   bundleOptions: BundleOptions;
 }
 
-// Shared by release-react and release-expo: what to bundle and where the source maps go
 async function planBundle(
   command: cli.IReleaseReactCommand,
   outputFolder: string,
