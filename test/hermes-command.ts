@@ -32,6 +32,7 @@ describe("Hermes command resolution", () => {
     originalCwd = process.cwd();
     originalEnv = { ...process.env };
     delete process.env.HERMES_CLI_PATH;
+    delete process.env.PODFILE_DIR;
     projectDirectory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "revopush-hermesc-")));
     createFile("node_modules/react-native/package.json", JSON.stringify({ name: "react-native", version: "0.83.0" }));
     createFile("android/app/build.gradle", "react {\n}\n");
@@ -121,6 +122,17 @@ describe("Hermes command resolution", () => {
     createFile("ios/.xcode.env", "export HERMES_CLI_PATH=/env/hermesc\n");
     createFile("ios/.xcode.env.local", "export HERMES_CLI_PATH=/xcode/hermesc\n");
     assert.strictEqual(await findHermesc("ios"), "/xcode/hermesc");
+  });
+
+  it("prefers the Podfile's .xcode.env over PODFILE_DIR over ios/", async () => {
+    createFile("ios/.xcode.env", "export HERMES_CLI_PATH=/ios/hermesc\n");
+    createFile("apps/mobile/ios/.xcode.env", "export HERMES_CLI_PATH=/podfile/hermesc\n");
+    createFile("pods/.xcode.env", "export HERMES_CLI_PATH=/podfile-dir/hermesc\n");
+    assert.strictEqual(await findHermesc("ios"), "/ios/hermesc");
+
+    process.env.PODFILE_DIR = path.join(projectDirectory, "pods");
+    assert.strictEqual(await findHermesc("ios"), "/podfile-dir/hermesc");
+    assert.strictEqual(await findHermesc("ios", undefined, "apps/mobile/ios/Podfile"), "/podfile/hermesc");
   });
 
   it("ignores a HERMES_CLI_PATH that references Xcode variables", async () => {

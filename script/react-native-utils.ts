@@ -18,7 +18,8 @@ export function getBundleSourceMapOutput(
   platform: string,
   bundleName: string,
   sourcemapOutputFolder: string,
-  isHermes: boolean
+  isHermes: boolean,
+  podFile?: string
 ): string {
   switch (platform) {
     case "android": {
@@ -27,7 +28,7 @@ export function getBundleSourceMapOutput(
     }
     case "ios": {
       // Same name as react-native-xcode.sh, since it ends up in the bundle's sourceMappingURL
-      const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE");
+      const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE", podFile);
       return path.join(sourcemapOutputFolder, sourceMapFile ? path.basename(sourceMapFile) : bundleName + ".map");
     }
     default:
@@ -74,7 +75,7 @@ export async function runHermesEmitBinaryCommand(
 ): Promise<void> {
   const bundle = path.join(outputFolder, bundleName);
   const bytecode = bundle + ".hbc";
-  const hermesc = await findHermesc(command.platform, gradleFile);
+  const hermesc = await findHermesc(command.platform, gradleFile, command.podFile);
 
   const hermesArgs = [
     ...(process.env.CODE_PUSH_NODE_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []),
@@ -113,7 +114,7 @@ async function composeHermesSourceMaps(
   let composeSourceMaps = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
   // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
   if (command.platform === "ios") {
-    composeSourceMaps = getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH") || composeSourceMaps;
+    composeSourceMaps = getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH", command.podFile) || composeSourceMaps;
   }
   if (!fs.existsSync(composeSourceMaps)) {
     throw new Error(`Source map compose script ${composeSourceMaps} is not found`);
@@ -127,7 +128,7 @@ async function composeHermesSourceMaps(
   let packagerSourceMap = sourcemapOutputFolder;
   let combinedSourceMap = sourcemapOutputFolder;
   if (!sourcemapOutputFolder.endsWith(".map")) {
-    packagerSourceMap = getBundleSourceMapOutput(command.platform, bundleName, sourcemapOutputFolder, true);
+    packagerSourceMap = getBundleSourceMapOutput(command.platform, bundleName, sourcemapOutputFolder, true, command.podFile);
     combinedSourceMap = command.platform === "android" ? path.join(sourcemapOutputFolder, bundleName + ".map") : packagerSourceMap;
   }
 
@@ -185,10 +186,14 @@ export function getReactNativeVersion(): string | undefined {
   return fs.existsSync(packageJson) ? JSON.parse(fs.readFileSync(packageJson, "utf8")).version : undefined;
 }
 
-/** As react-native-xcode.sh sees it: ios/.xcode.env.local, then ios/.xcode.env, then the environment */
-export function getXcodeDotEnvValue(key: string): string | undefined {
+/**
+ * As react-native-xcode.sh sees it: .xcode.env.local, then .xcode.env, then the environment.
+ * The files sit next to the Podfile: --podFile, else PODFILE_DIR (set in Xcode builds), else ios/
+ */
+export function getXcodeDotEnvValue(key: string, podFile?: string): string | undefined {
+  const podfileDir = podFile ? path.dirname(podFile) : process.env.PODFILE_DIR || "ios";
   for (const envFile of [".xcode.env.local", ".xcode.env"]) {
-    const envPath = path.join("ios", envFile);
+    const envPath = path.join(podfileDir, envFile);
     const value = fs.existsSync(envPath) ? dotenv.parse(fs.readFileSync(envPath))[key] : undefined;
     if (value !== undefined) {
       return value;
