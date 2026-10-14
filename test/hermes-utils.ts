@@ -7,8 +7,11 @@ import { findHermesc, getHermescBytecodeVersion, isBaseBytecodeCompatible, isHer
 import { restoreEnvAfterEach } from "./helpers/env";
 import { useTempDirectory } from "./helpers/temp-directory";
 
-const OS_BIN = process.platform === "darwin" ? "osx-bin" : process.platform === "win32" ? "win64-bin" : "linux64-bin";
-const exe = (name: string) => (process.platform === "win32" ? `${name}.exe` : name);
+const OS_BIN = ({ win32: "win64-bin", darwin: "osx-bin" } as Record<string, string>)[process.platform] ?? "linux64-bin";
+
+function exe(name: string): string {
+  return process.platform === "win32" ? `${name}.exe` : name;
+}
 
 const HERMES_BYTECODE_MAGIC = BigInt("0x1F1903C103BC1FC6");
 
@@ -30,24 +33,28 @@ describe("hermes-utils", () => {
 
   afterEach(() => sinon.restore());
 
-  const writePackageJson = (directory: string, name: string, version: string) =>
-    project.write(`${directory}/package.json`, JSON.stringify({ name, version }));
+  function writePackageJson(directory: string, name: string, version: string): string {
+    return project.write(`${directory}/package.json`, JSON.stringify({ name, version }));
+  }
 
-  /** An RN 0.83 app with Hermes enabled in gradle.properties and an empty `react {}` block */
   function writeReactNativeApp(): void {
     writePackageJson("node_modules/react-native", "react-native", "0.83.0");
     project.write("android/app/build.gradle", "react {\n}\n");
     project.write("android/gradle.properties", "hermesEnabled=true\n");
   }
 
-  const writeBundledHermesc = () => project.write(`node_modules/react-native/sdks/hermesc/${OS_BIN}/${exe("hermesc")}`);
+  function writeBundledHermesc(): string {
+    return project.write(`node_modules/react-native/sdks/hermesc/${OS_BIN}/${exe("hermesc")}`);
+  }
 
   function writeHermesCompiler(nodeModules = "node_modules"): string {
     writePackageJson(`${nodeModules}/hermes-compiler`, "hermes-compiler", "1.0.0");
     return project.write(`${nodeModules}/hermes-compiler/hermesc/${OS_BIN}/${exe("hermesc")}`);
   }
 
-  const resolvedHermesc = async (options: Parameters<typeof findHermesc>[0]) => fs.realpathSync(await findHermesc(options));
+  async function resolvedHermesc(options: Parameters<typeof findHermesc>[0]): Promise<string> {
+    return fs.realpathSync(await findHermesc(options));
+  }
 
   describe("findHermesc", () => {
     beforeEach(writeReactNativeApp);
@@ -233,18 +240,23 @@ describe("hermes-utils", () => {
   });
 
   /** A stand-in hermesc: a node script that runs `script` in place of `hermesc -emit-binary -` */
-  const writeCompiler = (script: string) => {
+  function writeCompiler(script: string): string {
     const compiler = project.write("hermesc", `#!/usr/bin/env node\n${script}\n`);
     fs.chmodSync(compiler, 0o755);
     return compiler;
-  };
+  }
 
-  const writeCompilerEmitting = (version: number) =>
-    writeCompiler(`process.stdout.write(Buffer.from("${hermesBytecodeHeader(version).toString("hex")}", "hex"));`);
+  function writeCompilerEmitting(version: number): string {
+    return writeCompiler(`process.stdout.write(Buffer.from("${hermesBytecodeHeader(version).toString("hex")}", "hex"));`);
+  }
 
-  const writeFailingCompiler = () => writeCompiler("process.exit(1);");
+  function writeFailingCompiler(): string {
+    return writeCompiler("process.exit(1);");
+  }
 
-  const writeBundle = (contents: Buffer | string) => project.write("index.android.bundle", contents);
+  function writeBundle(contents: Buffer | string): string {
+    return project.write("index.android.bundle", contents);
+  }
 
   describe("getHermescBytecodeVersion", () => {
     it("reads the version from the bytecode the compiler emits", () => {

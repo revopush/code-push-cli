@@ -31,10 +31,12 @@ export function useTempDirectory(prefix: string, { chdir = false }: { chdir?: bo
   });
 
   afterEach(() => {
-    if (chdir) {
+    if (chdir && originalCwd) {
       process.chdir(originalCwd);
     }
-    fs.rmSync(directory, { recursive: true, force: true });
+    if (directory) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   const write = (filePath: string, contents: string | Buffer = ""): string => {

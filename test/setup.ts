@@ -7,5 +7,6 @@ import * as path from "path";
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "revopush-test-home-"));
 process.env.HOME = home;
 process.env.LOCALAPPDATA = home;
+process.on("exit", () => fs.rmSync(home, { recursive: true, force: true }));
 // Expected dates in the tests are US Pacific time
 process.env.TZ = "America/Los_Angeles";

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node ./bin/script/cli.js",
     "build": "tsc",
+    "pretest": "node -e \"require('fs').rmSync('bin', { recursive: true, force: true })\"",
     "test": "tsc && node -e \"require('fs').cpSync('test/resources', 'bin/test/resources', { recursive: true })\" && mocha",
     "prettier": "prettier --write \"./**/*.ts\"",
     "lint": "eslint \"script/**/*.ts\" \"test/**/*.ts\"",

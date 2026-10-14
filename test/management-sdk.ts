@@ -24,10 +24,9 @@ const serverUrl = "http://localhost";
 let superagentMock: SuperagentMock | undefined;
 
 /**
- * Answers every request to `serverUrl` with the given status and body. Like a real superagent
- * error, a non-2xx status fails the request with an error whose message is the body.
+ * Answers every request with the given status and body, and returns the request bodies it receives.
+ * Like a real superagent error, a non-2xx status fails the request with the body as its message.
  */
-/** Answers every request with the given response; returns the request bodies the mock receives */
 function mockServerResponse(status: number, body = "", header: Record<string, string> = {}): unknown[] {
   const requestBodies: unknown[] = [];
   superagentMock?.unset();

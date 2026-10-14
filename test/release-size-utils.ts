@@ -15,6 +15,7 @@ import {
   SENTRY_SOURCE_MAP_DOCS_URL,
   shouldAnalyzeReleaseSizes,
 } from "../script/utils/release-size-utils";
+import { assertIncludes } from "./helpers/assert";
 import { useTempDirectory } from "./helpers/temp-directory";
 
 function releaseSizeAnalysis(overrides: Partial<ReleaseSizeAnalysis> = {}): ReleaseSizeAnalysis {
@@ -107,11 +108,11 @@ describe("release-size-utils", () => {
 
       assert.ok(warning);
       assert.ok(warning.startsWith("[Warning] Release size checks:"));
-      assert.ok(warning.includes("Release completed because --force was used"));
-      assert.ok(warning.includes("images/hero.png"));
-      assert.ok(warning.includes(ASSET_OPTIMIZATION_DOCS_URL));
-      assert.ok(warning.includes("The generated JS/Hermes bundle"));
-      assert.ok(warning.includes("To reduce the update size, use diff updates."));
+      assert.match(warning, /Release completed because --force was used/);
+      assert.match(warning, /images\/hero\.png/);
+      assertIncludes(warning, ASSET_OPTIMIZATION_DOCS_URL);
+      assert.match(warning, /The generated JS\/Hermes bundle/);
+      assert.match(warning, /To reduce the update size, use diff updates\./);
       assert.ok(warning.indexOf("images/hero.png") < warning.indexOf("The generated JS/Hermes bundle"));
     });
 
@@ -121,8 +122,8 @@ describe("release-size-utils", () => {
       const warning = formatReleaseSizeWarnings(analysis, false);
 
       assert.ok(warning);
-      assert.ok(warning.includes(`${MAX_BUNDLE_SIZE_BYTES + 1} bytes`));
-      assert.ok(warning.includes("diff updates"));
+      assertIncludes(warning, `${MAX_BUNDLE_SIZE_BYTES + 1} bytes`);
+      assert.match(warning, /diff updates/);
     });
   });
 
@@ -134,9 +135,9 @@ describe("release-size-utils", () => {
       ]);
 
       assert.ok(warning);
-      assert.ok(warning.includes("a.map"));
-      assert.ok(warning.includes("nested/b.map"));
-      assert.ok(warning.includes(SENTRY_SOURCE_MAP_DOCS_URL));
+      assert.match(warning, /a\.map/);
+      assert.match(warning, /nested\/b\.map/);
+      assertIncludes(warning, SENTRY_SOURCE_MAP_DOCS_URL);
       assert.equal(formatSourceMapWarning([]), null);
     });
   });

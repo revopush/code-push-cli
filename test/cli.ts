@@ -8,6 +8,7 @@ import * as path from "path";
 import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
 import * as cli from "../script/types/cli";
+import { argValue, fakeBundlerProcess } from "./helpers/bundler";
 import { restoreEnvAfterEach } from "./helpers/env";
 import { DEFAULT_ACCESS_KEY_MAX_AGE, NOW, SdkStub, TEST_MACHINE_NAME } from "./helpers/sdk-stub";
 import { inDirectory, useTempDirectory } from "./helpers/temp-directory";
@@ -17,29 +18,17 @@ const INVALID_SEMVER_RANGE_ERROR = 'Please use a semver-compliant target binary 
 const INVALID_RELEASE_FILE_ERROR =
   "It is unnecessary to package releases in a .zip or binary file. Please specify the direct path to the update content's directory (e.g. /platforms/ios/www) or file (e.g. main.jsbundle).";
 
-/** Stands in for the bundler process: writes an empty bundle where asked and exits immediately */
-function fakeBundlerProcess(_command: string, args: string[] = []) {
-  const bundleOutput = args.indexOf("--bundle-output");
-  if (bundleOutput !== -1) {
-    fs.mkdirSync(path.dirname(args[bundleOutput + 1]), { recursive: true });
-    fs.writeFileSync(args[bundleOutput + 1], "");
-  }
-  return {
-    stdout: { on: () => {} },
-    stderr: { on: () => {} },
-    on: (_event: string, callback: () => void) => callback(),
-  };
+/** Stands in for the bundler: writes an empty bundle where asked and exits immediately */
+function fakeBundler(_command: string, args: string[]) {
+  const bundlePath = argValue(args, "--bundle-output");
+  fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
+  fs.writeFileSync(bundlePath, "");
+  return fakeBundlerProcess(args);
 }
 
 /** Runs the command, adapting the CLI's Q promise to a native one for `assert.rejects` */
 async function execute(command: cli.ICommand): Promise<void> {
   await cmdexec.execute(command);
-}
-
-function argValue(args: string[], flag: string): string {
-  const index = args.indexOf(flag);
-  assert.notEqual(index, -1, `Expected the "${flag}" argument`);
-  return args[index + 1];
 }
 
 function patchCommand(overrides: Partial<cli.IPatchCommand> = {}): cli.IPatchCommand {
@@ -113,13 +102,12 @@ describe("CLI", () => {
     confirm = sinon.stub(cmdexec, "confirm").resolves(true);
     sinon.stub(cmdexec, "createEmptyTempReleaseFolder").resolves();
     log = sinon.stub(cmdexec, "log");
-    spawn = sinon.stub(cmdexec, "spawn").callsFake(fakeBundlerProcess);
+    spawn = sinon.stub(cmdexec, "spawn").callsFake(fakeBundler);
   });
 
   afterEach(() => sinon.restore());
 
   const assertLoggedOnce = (message: string): void => sinon.assert.calledOnceWithExactly(log, message);
-  // The CLI prints JSON output indented by 2 spaces
   const assertLoggedJson = (value: unknown): void => assertLoggedOnce(JSON.stringify(value, null, 2));
 
   describe("access-key", () => {
@@ -131,7 +119,9 @@ describe("CLI", () => {
     it("add creates an access key with the default ttl", async () => {
       const addAccessKey = sinon.spy(cmdexec.sdk, "addAccessKey");
 
-      await execute(<cli.IAccessKeyAddCommand>{ type: cli.CommandType.accessKeyAdd, name: "Test name" });
+      const command: cli.IAccessKeyAddCommand = { type: cli.CommandType.accessKeyAdd, name: "Test name" };
+
+      await execute(command);
 
       sinon.assert.calledOnceWithExactly(addAccessKey, "Test name", undefined);
       assert.deepEqual(log.args, createdMessages);
@@ -140,7 +130,9 @@ describe("CLI", () => {
     it("add creates an access key with the specified ttl", async () => {
       const addAccessKey = sinon.spy(cmdexec.sdk, "addAccessKey");
 
-      await execute(<cli.IAccessKeyAddCommand>{ type: cli.CommandType.accessKeyAdd, name: "Test name", ttl: 10000 });
+      const command: cli.IAccessKeyAddCommand = { type: cli.CommandType.accessKeyAdd, name: "Test name", ttl: 10000 };
+
+      await execute(command);
 
       sinon.assert.calledOnceWithExactly(addAccessKey, "Test name", 10000);
       assert.deepEqual(log.args, createdMessages);
@@ -577,9 +569,10 @@ describe("CLI", () => {
       sinon.stub(console, "log");
     });
 
-    const executeInTestApp = (command: cli.ICommand) => inDirectory(TEST_APP_DIRECTORY, () => execute(command));
+    function executeInTestApp(command: cli.ICommand): Promise<void> {
+      return inDirectory(TEST_APP_DIRECTORY, () => execute(command));
+    }
 
-    /** Releases from the test app, returning the bundler arguments and the uploaded release metadata */
     async function releaseFromTestApp(command: cli.IReleaseReactCommand): Promise<{ bundlerArgs: string[]; metadata: any }> {
       const sdkRelease = sinon.stub(cmdexec.sdk, "release").resolves();
 
@@ -588,25 +581,20 @@ describe("CLI", () => {
       sinon.assert.calledOnce(spawn);
       assert.equal(spawn.args[0][0], "node");
       sinon.assert.calledOnce(sdkRelease);
-      const bundlerArgs: unknown[] = spawn.args[0][1];
-      assert.ok(
-        bundlerArgs.every((arg) => typeof arg === "string"),
-        `Bundler arguments must be strings: ${JSON.stringify(bundlerArgs)}`
-      );
-      return { bundlerArgs: <string[]>bundlerArgs, metadata: sdkRelease.args[0][3] };
+      return { bundlerArgs: spawn.args[0][1], metadata: sdkRelease.args[0][3] };
     }
 
     describe("outside a React Native project", () => {
       useTempDirectory("no-package", { chdir: true });
 
       it("fails if the working directory has no package.json", async () => {
-        const release = sinon.spy(cmdexec, "release");
+        const upload = sinon.spy(cmdexec.sdk, "release");
 
         await assert.rejects(execute(releaseReactCommand()), {
           message: 'Unable to find or read "package.json" in the CWD. The command must be executed in a React Native project folder.',
         });
 
-        sinon.assert.notCalled(release);
+        sinon.assert.notCalled(upload);
         sinon.assert.notCalled(spawn);
       });
     });
@@ -635,11 +623,11 @@ describe("CLI", () => {
     ];
     for (const { title, overrides, error } of invalidCommands) {
       it(`fails if ${title}`, async () => {
-        const release = sinon.spy(cmdexec, "release");
+        const upload = sinon.spy(cmdexec.sdk, "release");
 
         await assert.rejects(executeInTestApp(releaseReactCommand(overrides)), { message: error });
 
-        sinon.assert.notCalled(release);
+        sinon.assert.notCalled(upload);
         sinon.assert.notCalled(spawn);
       });
     }

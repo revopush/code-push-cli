@@ -42,7 +42,7 @@ export class SdkStub {
   public addAccessKey(name: string, ttl?: number): Promise<AccessKey> {
     return Promise.resolve(<AccessKey>{
       key: "key123",
-      createdTime: new Date().getTime(),
+      createdTime: Date.now(),
       name,
       expires: NOW + (ttl ?? DEFAULT_ACCESS_KEY_MAX_AGE),
     });
@@ -50,7 +50,7 @@ export class SdkStub {
 
   public patchAccessKey(_oldName: string, newName?: string, newTtl?: number): Promise<AccessKey> {
     return Promise.resolve(<AccessKey>{
-      createdTime: new Date().getTime(),
+      createdTime: Date.now(),
       name: newName,
       expires: NOW + (newTtl ?? DEFAULT_ACCESS_KEY_MAX_AGE),
     });
@@ -60,17 +60,13 @@ export class SdkStub {
     return Promise.resolve([<AccessKey>{ createdTime: 0, name: "Test name", expires: NOW + DEFAULT_ACCESS_KEY_MAX_AGE }]);
   }
 
-  public removeAccessKey(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async removeAccessKey(): Promise<void> {}
 
   public getSessions(): Promise<Session[]> {
     return Promise.resolve([{ loggedInTime: 0, machineName: TEST_MACHINE_NAME }]);
   }
 
-  public removeSession(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async removeSession(): Promise<void> {}
 
   public addApp(name: string): Promise<App> {
     return Promise.resolve(<App>{ name });
@@ -85,21 +81,13 @@ export class SdkStub {
     return Promise.resolve([ownedApp("a"), ownedApp("b")]);
   }
 
-  public removeApp(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async removeApp(): Promise<void> {}
 
-  public renameApp(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async renameApp(): Promise<void> {}
 
-  public transferApp(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async transferApp(): Promise<void> {}
 
-  public addCollaborator(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async addCollaborator(): Promise<void> {}
 
   public getCollaborators(): Promise<CollaboratorMap> {
     return Promise.resolve({
@@ -108,9 +96,7 @@ export class SdkStub {
     });
   }
 
-  public removeCollaborator(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async removeCollaborator(): Promise<void> {}
 
   public addDeployment(deploymentName: string): Promise<Deployment> {
     return Promise.resolve({ name: deploymentName, key: "6" });
@@ -129,17 +115,11 @@ export class SdkStub {
     return deployment ? Promise.resolve(deployment) : Promise.reject(new Error(`Unknown deployment "${appName}/${deploymentName}"`));
   }
 
-  public removeDeployment(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async removeDeployment(): Promise<void> {}
 
-  public renameDeployment(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async renameDeployment(): Promise<void> {}
 
-  public clearDeploymentHistory(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async clearDeploymentHistory(): Promise<void> {}
 
   public getDeploymentHistory(): Promise<Package[]> {
     return Promise.resolve([
@@ -178,15 +158,9 @@ export class SdkStub {
     return Promise.resolve("Successfully released");
   }
 
-  public patchRelease(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async patchRelease(): Promise<void> {}
 
-  public promote(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async promote(): Promise<void> {}
 
-  public rollback(): Promise<void> {
-    return Promise.resolve();
-  }
+  public async rollback(): Promise<void> {}
 }
