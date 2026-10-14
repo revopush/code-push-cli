@@ -5,7 +5,6 @@ import * as assert from "assert";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as hashUtils from "../script/hash-utils";
-var mkdirp = require("mkdirp");
 import * as os from "os";
 import * as path from "path";
 import * as q from "q";
@@ -26,40 +25,34 @@ function unzipToDirectory(zipPath: string, directoryPath: string): Promise<void>
   var deferred: q.Deferred<void> = q.defer<void>();
   var originalCwd: string = process.cwd();
 
-  mkdirp(directoryPath, (err: Error) => {
-    if (err) throw err;
-    process.chdir(directoryPath);
+  fs.mkdirSync(directoryPath, { recursive: true });
+  process.chdir(directoryPath);
 
-    yauzl.open(zipPath, { lazyEntries: true }, function (err: Error, zipfile: any) {
-      if (err) throw err;
-      zipfile.readEntry();
-      zipfile.on("entry", function (entry: any) {
-        if (/\/$/.test(entry.fileName)) {
-          // directory file names end with '/'
-          mkdirp(entry.fileName, function (err: Error) {
-            if (err) throw err;
+  yauzl.open(zipPath, { lazyEntries: true }, function (err: Error, zipfile: any) {
+    if (err) throw err;
+    zipfile.readEntry();
+    zipfile.on("entry", function (entry: any) {
+      if (/\/$/.test(entry.fileName)) {
+        // directory file names end with '/'
+        fs.mkdirSync(entry.fileName, { recursive: true });
+        zipfile.readEntry();
+      } else {
+        // file entry
+        zipfile.openReadStream(entry, function (err: Error, readStream: any) {
+          if (err) throw err;
+          // ensure parent directory exists
+          fs.mkdirSync(path.dirname(entry.fileName), { recursive: true });
+          readStream.pipe(fs.createWriteStream(entry.fileName));
+          readStream.on("end", function () {
             zipfile.readEntry();
           });
-        } else {
-          // file entry
-          zipfile.openReadStream(entry, function (err: Error, readStream: any) {
-            if (err) throw err;
-            // ensure parent directory exists
-            mkdirp(path.dirname(entry.fileName), function (err: Error) {
-              if (err) throw err;
-              readStream.pipe(fs.createWriteStream(entry.fileName));
-              readStream.on("end", function () {
-                zipfile.readEntry();
-              });
-            });
-          });
-        }
-      });
+        });
+      }
+    });
 
-      zipfile.on("end", function (err: Error) {
-        if (err) deferred.reject(err);
-        else deferred.resolve(<void>null);
-      });
+    zipfile.on("end", function (err: Error) {
+      if (err) deferred.reject(err);
+      else deferred.resolve(<void>null);
     });
   });
 
