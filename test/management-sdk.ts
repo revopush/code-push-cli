@@ -27,12 +27,15 @@ let superagentMock: SuperagentMock | undefined;
  * Answers every request to `serverUrl` with the given status and body. Like a real superagent
  * error, a non-2xx status fails the request with an error whose message is the body.
  */
-function mockServerResponse(status: number, body = "", header: Record<string, string> = {}): void {
+/** Answers every request with the given response; returns the request bodies the mock receives */
+function mockServerResponse(status: number, body = "", header: Record<string, string> = {}): unknown[] {
+  const requestBodies: unknown[] = [];
   superagentMock?.unset();
   superagentMock = installSuperagentMock(superagent, [
     {
       pattern: `${serverUrl}/(\\w+)/?`,
-      fixtures: (): MockedResponse => {
+      fixtures: (_match: RegExpExecArray, requestBody: unknown): MockedResponse => {
+        requestBodies.push(requestBody);
         const ok = status >= 200 && status < 300;
         if (!ok) {
           throw Object.assign(new Error(body), { status });
@@ -42,6 +45,7 @@ function mockServerResponse(status: number, body = "", header: Record<string, st
       callback: (_match: RegExpExecArray, response: MockedResponse): MockedResponse => response,
     },
   ]);
+  return requestBodies;
 }
 
 // The SDK returns Q promises, so tests pass `async () => ...` to assert.rejects to get a native promise
@@ -247,6 +251,16 @@ describe("Management SDK", () => {
       mockServerResponse(200, JSON.stringify({ package: { description: "newDescription" } }));
 
       assert.equal(await manager.patchRelease("appName", "deploymentName", "label", { description: "newDescription" }), null);
+    });
+
+    it("patchRelease sends the label without changing the caller's metadata", async () => {
+      const requestBodies = mockServerResponse(200);
+      const metadata = { description: "newDescription" };
+
+      await manager.patchRelease("appName", "deploymentName", "v1", metadata);
+
+      assert.deepEqual(requestBodies, [JSON.stringify({ packageInfo: { description: "newDescription", label: "v1" } })]);
+      assert.deepEqual(metadata, { description: "newDescription" });
     });
 
     it("promote resolves with nothing", async () => {

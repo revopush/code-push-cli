@@ -432,8 +432,7 @@ class AccountManager {
   }
 
   public patchRelease(appName: string, deploymentName: string, label: string, updateMetadata: PackageInfo): Promise<void> {
-    updateMetadata.label = label;
-    const requestBody: string = JSON.stringify({ packageInfo: updateMetadata });
+    const requestBody: string = JSON.stringify({ packageInfo: { ...updateMetadata, label } });
     return this.patch(
       urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`]),
       requestBody,
