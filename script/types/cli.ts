@@ -217,6 +217,9 @@ export interface IReleaseReactCommand extends IReleaseBaseCommand {
   force?: boolean;
 }
 
+/** The native project fields needed for Hermes and .xcode.env lookups */
+export type NativeProject = Pick<IReleaseReactCommand, "platform" | "gradleFile" | "podFile">;
+
 export interface IReleaseNativeCommand extends IReleaseBaseCommand {
   platform: string;
   targetBinary: string;

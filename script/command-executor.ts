@@ -31,11 +31,12 @@ import {
   UpdateMetrics,
 } from "../script/types";
 import {
-  getBundleSourceMapOutput,
   getMinifyParams,
   getReactNativePackagePath,
+  getSourceMapPaths,
   isValidVersion,
   runHermesEmitBinaryCommand,
+  SourceMapPaths,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
 import { isHermesEnabled } from "./utils/hermes-utils";
@@ -1131,17 +1132,23 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
   return doRelease(command, updateMetadata);
 };
 
-export const runExpoExportEmbedCommand = async (
-  command: cli.IReleaseReactCommand,
-  bundleName: string,
-  development: boolean,
-  // entryFile: string,
-  outputFolder: string,
-  sourcemapOutputFolder: string,
-  platform: string,
-  extraBundlerOptions: string[],
-  isHermes: boolean
-) => {
+export interface BundleOptions {
+  platform: string;
+  development: boolean;
+  outputFolder: string;
+  bundleName: string;
+  packagerSourceMap: string;
+  extraBundlerOptions: string[];
+}
+
+export const runExpoExportEmbedCommand = async ({
+  platform,
+  development,
+  outputFolder,
+  bundleName,
+  packagerSourceMap,
+  extraBundlerOptions,
+}: BundleOptions) => {
   const expoBundleArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
 
@@ -1167,17 +1174,7 @@ export const runExpoExportEmbedCommand = async (
     "--reset-cache",
   ]);
 
-  if (sourcemapOutputFolder) {
-    let bundleSourceMapOutput = sourcemapOutputFolder;
-    if (!sourcemapOutputFolder.endsWith(".map")) {
-      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes, command.podFile);
-    }
-
-    expoBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
-  }
-
-  // const minifyValue = await getMinifyParams(command);
-  // Array.prototype.push.apply(expoBundleArgs, minifyValue);
+  expoBundleArgs.push("--sourcemap-output", packagerSourceMap);
 
   if (extraBundlerOptions.length > 0) {
     expoBundleArgs.push(...extraBundlerOptions);
@@ -1282,6 +1279,50 @@ function validateReactReleaseCommand(
   return { platform, bundleName, entryFile, projectName };
 }
 
+interface BundlePlan {
+  isHermes: boolean;
+  sourceMaps: SourceMapPaths;
+  bundleOptions: BundleOptions;
+}
+
+async function planBundle(
+  command: cli.IReleaseReactCommand,
+  outputFolder: string,
+  bundleName: string,
+  sourcemapOutput: string
+): globalThis.Promise<BundlePlan> {
+  const isHermes = command.useHermes || (await isHermesEnabled(command));
+  const sourceMaps = getSourceMapPaths(command, bundleName, sourcemapOutput, isHermes);
+  return {
+    isHermes,
+    sourceMaps,
+    bundleOptions: {
+      platform: command.platform,
+      development: command.development || false,
+      outputFolder,
+      bundleName,
+      packagerSourceMap: sourceMaps.packager,
+      extraBundlerOptions: command.extraBundlerOptions,
+    },
+  };
+}
+
+// Compiles the bundle in place, against the base release's bytecode when there is one
+async function compileHermesBundle(
+  command: cli.IReleaseReactCommand,
+  outputFolder: string,
+  bundleName: string,
+  sourceMaps: SourceMapPaths,
+  baseReleaseTmpFolder: string
+): globalThis.Promise<void> {
+  await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
+  const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+
+  log(chalk.cyan("\nRunning hermes compiler...\n"));
+  const bundle = path.join(outputFolder, bundleName);
+  await runHermesEmitBinaryCommand(command, bundle, sourceMaps, command.extraHermesFlags, baseBytecode);
+}
+
 function validateGeneratedReleaseSizes(
   command: cli.IReleaseReactCommand,
   outputFolder: string,
@@ -1359,33 +1400,11 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
     })
     .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
     .then(async () => {
-      const isHermes = await isHermesEnabled(command, platform);
-      await runExpoExportEmbedCommand(
-        command,
-        bundleName,
-        command.development || false,
-        // entryFile,
-        outputFolder,
-        sourcemapOutputFolder,
-        platform,
-        command.extraBundlerOptions,
-        isHermes
-      );
+      const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
+      await runExpoExportEmbedCommand(bundleOptions);
 
       if (isHermes) {
-        await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
-        const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
-
-        log(chalk.cyan("\nRunning hermes compiler.\n"));
-        await runHermesEmitBinaryCommand(
-          command,
-          bundleName,
-          outputFolder,
-          sourcemapOutputFolder,
-          command.extraHermesFlags,
-          command.gradleFile,
-          baseBytecode
-        );
+        await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
       }
     })
     .then(() => {
@@ -1471,33 +1490,11 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       // https://github.com/facebook/react-native/issues/4289
       .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
       .then(async () => {
-        const isHermes = await isHermesEnabled(command, platform);
-        await runReactNativeBundleCommand(
-          command,
-          bundleName,
-          command.development || false,
-          entryFile,
-          outputFolder,
-          sourcemapOutputFolder,
-          platform,
-          command.extraBundlerOptions,
-          isHermes
-        );
+        const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
+        await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
 
         if (isHermes) {
-          await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
-          const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
-
-          log(chalk.cyan("\nRunning hermes compiler...\n"));
-          await runHermesEmitBinaryCommand(
-            command,
-            bundleName,
-            outputFolder,
-            sourcemapOutputFolder,
-            command.extraHermesFlags,
-            command.gradleFile,
-            baseBytecode
-          );
+          await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
         }
       })
       .then(() => {
@@ -1813,14 +1810,8 @@ function requestAccessKey(): Promise<string> {
 }
 
 export const runReactNativeBundleCommand = async (
-  command: cli.IReleaseReactCommand,
-  bundleName: string,
-  development: boolean,
+  { platform, development, outputFolder, bundleName, packagerSourceMap, extraBundlerOptions }: BundleOptions,
   entryFile: string,
-  outputFolder: string,
-  sourcemapOutputFolder: string,
-  platform: string,
-  extraBundlerOptions: string[],
   isHermes: boolean
 ) => {
   const reactNativeBundleArgs: string[] = [];
@@ -1850,14 +1841,7 @@ export const runReactNativeBundleCommand = async (
     "--reset-cache",
   ]);
 
-  if (sourcemapOutputFolder) {
-    let bundleSourceMapOutput = sourcemapOutputFolder;
-    if (!sourcemapOutputFolder.endsWith(".map")) {
-      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes, command.podFile);
-    }
-
-    reactNativeBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
-  }
+  reactNativeBundleArgs.push("--sourcemap-output", packagerSourceMap);
 
   const minifyValue = getMinifyParams(platform, isHermes);
   Array.prototype.push.apply(reactNativeBundleArgs, minifyValue);
