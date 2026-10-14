@@ -105,7 +105,7 @@ let connectionInfo: ILoginConnectionInfo;
 
 export const confirm = (message: string = "Are you sure?"): Promise<boolean> => {
   message += " (y/N):";
-  return Promise<boolean>((resolve, reject, notify): void => {
+  return Promise<boolean>((resolve): void => {
     prompt.message = "";
     prompt.delimiter = "";
 
@@ -205,7 +205,6 @@ function appAdd(command: cli.IAppAddCommand): Promise<void> {
 
 function appList(command: cli.IAppListCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
-  let apps: App[];
   return sdk.getApps().then((retrievedApps: App[]): void => {
     printAppList(command.format, retrievedApps);
   });
@@ -294,7 +293,7 @@ function deleteConnectionInfoCache(printMessage: boolean = true): void {
 }
 
 function deleteFolder(folderPath: string): Promise<void> {
-  return Promise<void>((resolve, reject, notify) => {
+  return Promise<void>((resolve, reject) => {
     rimraf(folderPath, (err: any) => {
       if (err) {
         reject(err);
@@ -648,7 +647,7 @@ function loginWithExternalAuthentication(action: string, apiServerUrl?: string, 
   });
 }
 
-function logout(command: cli.ICommand): Promise<void> {
+function logout(_command: cli.ICommand): Promise<void> {
   return Q(<void>null)
     .then((): Promise<void> => {
       if (!connectionInfo.preserveAccessKeyOnLogout) {
@@ -685,7 +684,7 @@ function printAppList(format: string, apps: App[]): void {
   } else if (format === "table") {
     const headers = ["Name", "Deployments"];
     printTable(headers, (dataSource: any[]): void => {
-      apps.forEach((app: App, index: number): void => {
+      apps.forEach((app: App): void => {
         const row = [app.name, wordwrap(50)(app.deployments.join(", "))];
         dataSource.push(row);
       });
@@ -1190,7 +1189,7 @@ export const runExpoExportEmbedCommand = async ({
   const expoBundleProcess = spawn("node", expoBundleArgs);
   log(`node ${expoBundleArgs.join(" ")}`);
 
-  return Promise<void>((resolve, reject, notify) => {
+  return Promise<void>((resolve, reject) => {
     expoBundleProcess.stdout.on("data", (data: Buffer) => {
       log(data.toString().trim());
     });
@@ -1691,7 +1690,7 @@ const doRelease = (
 
   return sdk
     .isAuthenticated(true)
-    .then((isAuth: boolean): Promise<void> => {
+    .then((): Promise<void> => {
       log("Release file path: " + filePath);
       log("Metadata: " + JSON.stringify(updateMetadata));
       return sdk.release(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
@@ -1784,7 +1783,7 @@ function rollback(command: cli.IRollbackCommand): Promise<void> {
 }
 
 function requestAccessKey(): Promise<string> {
-  return Promise<string>((resolve, reject, notify): void => {
+  return Promise<string>((resolve): void => {
     prompt.message = "";
     prompt.delimiter = "";
 
@@ -1854,7 +1853,7 @@ export const runReactNativeBundleCommand = async (
   const reactNativeBundleProcess = spawn("node", reactNativeBundleArgs);
   log(`node ${reactNativeBundleArgs.join(" ")}`);
 
-  return Promise<void>((resolve, reject, notify) => {
+  return Promise<void>((resolve, reject) => {
     reactNativeBundleProcess.stdout.on("data", (data: Buffer) => {
       log(data.toString().trim());
     });
@@ -1950,7 +1949,7 @@ function throwForInvalidOutputFormat(format: string): void {
   }
 }
 
-function whoami(command: cli.ICommand): Promise<void> {
+function whoami(_command: cli.ICommand): Promise<void> {
   return sdk.getAccountInfo().then((account): void => {
     const accountInfo = `${account.email} (${account.linkedProviders.join(", ")})`;
 

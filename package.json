@@ -8,8 +8,8 @@
     "build": "tsc",
     "test": "tsc && node -e \"require('fs').cpSync('test/resources', 'bin/test/resources', { recursive: true })\" && mocha",
     "prettier": "prettier --write \"./**/*.ts\"",
-    "lint": "npx eslint ./script/**/*.ts",
-    "lint:fix": "npx eslint ./script/**/*.ts --fix"
+    "lint": "eslint \"script/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"script/**/*.ts\" \"test/**/*.ts\" --fix"
   },
   "bin": {
     "revopush": "./bin/script/cli.js"

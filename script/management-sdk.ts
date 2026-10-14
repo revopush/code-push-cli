@@ -88,7 +88,7 @@ class AccountManager {
   }
 
   public isAuthenticated(throwIfUnauthorized?: boolean): Promise<boolean> {
-    return Promise<any>((resolve, reject, notify) => {
+    return Promise<any>((resolve, reject) => {
       const request: superagent.Request<any> = superagent.get(`${this._serverUrl}${urlEncode(["/authenticated"])}`);
       this.attachCredentials(request);
 
@@ -312,7 +312,7 @@ class AccountManager {
     updateMetadata: PackageInfo,
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
-    return Promise<void>((resolve, reject, notify) => {
+    return Promise<void>((resolve, reject) => {
       const request: superagent.Request<any> = superagent.post(
         this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`])
       );
@@ -382,7 +382,7 @@ class AccountManager {
     updateMetadata: ReactNativePackageInfo,
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
-    return Promise<void>((resolve, reject, notify) => {
+    return Promise<void>((resolve, reject) => {
       const request: superagent.Request<any> = superagent.post(
         this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/nativerelease`])
       );
@@ -552,7 +552,7 @@ class AccountManager {
     expectResponseBody: boolean,
     contentType: string
   ): Promise<JsonResponse> {
-    return Promise<JsonResponse>((resolve, reject, notify) => {
+    return Promise<JsonResponse>((resolve, reject) => {
       let request: superagent.Request<any> = (<any>superagent)[method](this._serverUrl + endpoint);
 
       this.attachCredentials(request);
