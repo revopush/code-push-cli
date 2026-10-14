@@ -1308,6 +1308,22 @@ async function planBundle(
   };
 }
 
+// Compiles the bundle in place, against the base release's bytecode when there is one
+async function compileHermesBundle(
+  command: cli.IReleaseReactCommand,
+  outputFolder: string,
+  bundleName: string,
+  sourceMaps: SourceMapPaths,
+  baseReleaseTmpFolder: string
+): globalThis.Promise<void> {
+  await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
+  const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+
+  log(chalk.cyan("\nRunning hermes compiler...\n"));
+  const bundle = path.join(outputFolder, bundleName);
+  await runHermesEmitBinaryCommand(command, bundle, sourceMaps, command.extraHermesFlags, baseBytecode);
+}
+
 function validateGeneratedReleaseSizes(
   command: cli.IReleaseReactCommand,
   outputFolder: string,
@@ -1389,12 +1405,7 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
       await runExpoExportEmbedCommand(bundleOptions);
 
       if (isHermes) {
-        await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
-        const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
-
-        log(chalk.cyan("\nRunning hermes compiler.\n"));
-        const bundle = path.join(outputFolder, bundleName);
-        await runHermesEmitBinaryCommand(command, bundle, sourceMaps, command.extraHermesFlags, baseBytecode);
+        await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
       }
     })
     .then(() => {
@@ -1484,12 +1495,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
 
         if (isHermes) {
-          await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
-          const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
-
-          log(chalk.cyan("\nRunning hermes compiler...\n"));
-          const bundle = path.join(outputFolder, bundleName);
-          await runHermesEmitBinaryCommand(command, bundle, sourceMaps, command.extraHermesFlags, baseBytecode);
+          await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
         }
       })
       .then(() => {
