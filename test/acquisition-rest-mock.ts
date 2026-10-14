@@ -6,8 +6,8 @@ import * as querystring from "querystring";
 import * as acquisitionSdk from "../script/acquisition-sdk";
 import * as rest from "../script/types/rest-definitions";
 
-export var validDeploymentKey = "asdfasdfawerqw";
-export var latestPackage = <rest.UpdateCheckResponse>{
+export const validDeploymentKey = "asdfasdfawerqw";
+export const latestPackage = <rest.UpdateCheckResponse>{
   downloadURL: "http://www.windowsazure.com/blobs/awperoiuqpweru",
   description: "Angry flappy birds",
   appVersion: "1.5.0",
@@ -19,10 +19,10 @@ export var latestPackage = <rest.UpdateCheckResponse>{
   packageSize: 1024,
 };
 
-export var serverUrl = "http://myurl.com";
-var reportStatusDeployUrl = serverUrl + "/reportStatus/deploy";
-var reportStatusDownloadUrl = serverUrl + "/reportStatus/download";
-var updateCheckUrl = serverUrl + "/updateCheck?";
+export const serverUrl = "http://myurl.com";
+const reportStatusDeployUrl = serverUrl + "/reportStatus/deploy";
+const reportStatusDownloadUrl = serverUrl + "/reportStatus/download";
+const updateCheckUrl = serverUrl + "/updateCheck?";
 
 export class HttpRequester implements acquisitionSdk.Http.Requester {
   public request(
@@ -36,7 +36,7 @@ export class HttpRequester implements acquisitionSdk.Http.Requester {
     }
 
     if (verb === acquisitionSdk.Http.Verb.GET && url.indexOf(updateCheckUrl) === 0) {
-      var params = querystring.parse(url.substring(updateCheckUrl.length));
+      const params = querystring.parse(url.substring(updateCheckUrl.length));
       Server.onUpdateCheck(params, callback);
     } else if (verb === acquisitionSdk.Http.Verb.POST && url === reportStatusDeployUrl) {
       Server.onReportStatus(callback);
@@ -86,7 +86,7 @@ class Server {
   }
 
   public static onUpdateCheck(params: any, callback: acquisitionSdk.Callback<acquisitionSdk.Http.Response>): void {
-    var updateRequest: rest.UpdateCheckRequest = {
+    const updateRequest: rest.UpdateCheckRequest = {
       deploymentKey: params.deploymentKey,
       appVersion: params.appVersion,
       packageHash: params.packageHash,
@@ -97,7 +97,7 @@ class Server {
     if (!updateRequest.deploymentKey || !updateRequest.appVersion) {
       callback(/*error=*/ null, { statusCode: 400 });
     } else {
-      var updateInfo = <rest.UpdateCheckResponse>{ isAvailable: false };
+      let updateInfo = <rest.UpdateCheckResponse>{ isAvailable: false };
       if (updateRequest.deploymentKey === validDeploymentKey) {
         if (updateRequest.isCompanion || updateRequest.appVersion === latestPackage.appVersion) {
           if (updateRequest.packageHash !== latestPackage.packageHash) {

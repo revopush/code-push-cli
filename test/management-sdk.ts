@@ -6,9 +6,9 @@ import * as Q from "q";
 
 import AccountManager = require("../script/management-sdk");
 
-var request = require("superagent");
+const request = require("superagent");
 
-var manager: AccountManager;
+let manager: AccountManager;
 describe("Management SDK", () => {
   beforeEach(() => {
     manager = new AccountManager(/*accessKey=*/ "dummyAccessKey", /*customHeaders=*/ null, /*serverUrl=*/ "http://localhost");
@@ -22,7 +22,7 @@ describe("Management SDK", () => {
   it("methods reject the promise with status code info when an error occurs", (done: Mocha.Done) => {
     mockReturn("Text", 404);
 
-    var methodsWithErrorHandling: any[] = [
+    const methodsWithErrorHandling: any[] = [
       manager.addApp.bind(manager, "appName"),
       manager.getApp.bind(manager, "appName"),
       manager.renameApp.bind(manager, "appName", {}),
@@ -48,7 +48,7 @@ describe("Management SDK", () => {
       manager.rollback.bind(manager, "appName", "deploymentName", "targetReleaseLabel"),
     ];
 
-    var result = Q<void>(null);
+    let result = Q<void>(null);
     methodsWithErrorHandling.forEach(function (f) {
       result = result.then(() => {
         return testErrors(f);
@@ -61,7 +61,7 @@ describe("Management SDK", () => {
 
     // Test that the proper error code and text is passed through on a server error
     function testErrors(method: any): Q.Promise<void> {
-      return Q.Promise<void>((resolve: any, reject: any, notify: any) => {
+      return Q.Promise<void>((resolve: any, reject: any) => {
         method().done(
           () => {
             assert.fail("Should have thrown an error");
@@ -98,7 +98,7 @@ describe("Management SDK", () => {
 
     // use optional parameter to ask for rejection of the promise if not authenticated
     manager.isAuthenticated(true).done(
-      (authenticated: boolean) => {
+      () => {
         assert.fail("isAuthenticated should have rejected the promise");
         done();
       },
@@ -112,7 +112,7 @@ describe("Management SDK", () => {
   it("isAuthenticated handles unexpected status codes", (done: Mocha.Done) => {
     mockReturn("Not Found", 404, {});
     manager.isAuthenticated().done(
-      (authenticated: boolean) => {
+      () => {
         assert.fail("isAuthenticated should have rejected the promise");
         done();
       },
@@ -136,10 +136,10 @@ describe("Management SDK", () => {
   it("addApp handles error response", (done: Mocha.Done) => {
     mockReturn(JSON.stringify({ success: false }), 404, {});
     manager.addApp("appName").done(
-      (obj) => {
+      () => {
         throw new Error("Call should not complete successfully");
       },
-      (error: Error) => done()
+      () => done()
     );
   });
 
@@ -258,10 +258,10 @@ describe("Management SDK", () => {
     mockReturn("", 404);
 
     manager.getDeploymentHistory("appName", "deploymentName").done(
-      (obj: any) => {
+      () => {
         throw new Error("Call should not complete successfully");
       },
-      (error: Error) => done()
+      () => done()
     );
   });
 
@@ -278,10 +278,10 @@ describe("Management SDK", () => {
     mockReturn("", 404);
 
     manager.clearDeploymentHistory("appName", "deploymentName").done(
-      (obj: any) => {
+      () => {
         throw new Error("Call should not complete successfully");
       },
-      (error: Error) => done()
+      () => done()
     );
   });
 
@@ -296,10 +296,10 @@ describe("Management SDK", () => {
   it("addCollaborator handles error response", (done: Mocha.Done) => {
     mockReturn("", 404, {});
     manager.addCollaborator("appName", "email1").done(
-      (obj) => {
+      () => {
         throw new Error("Call should not complete successfully");
       },
-      (error: Error) => done()
+      () => done()
     );
   });
 
@@ -358,10 +358,10 @@ describe("Management SDK", () => {
     mockReturn("", 400);
 
     manager.patchRelease("appName", "deploymentName", "label", {}).done(
-      (obj: any) => {
+      () => {
         throw new Error("Call should not complete successfully");
       },
-      (error: Error) => done()
+      () => done()
     );
   });
 
@@ -386,10 +386,10 @@ describe("Management SDK", () => {
         rollout: 123,
       })
       .done(
-        (obj: any) => {
+        () => {
           throw new Error("Call should not complete successfully");
         },
-        (error: Error) => done()
+        () => done()
       );
   });
 
@@ -406,16 +406,16 @@ describe("Management SDK", () => {
     mockReturn("", 400);
 
     manager.rollback("appName", "deploymentName", "v1").done(
-      (obj: any) => {
+      () => {
         throw new Error("Call should not complete successfully");
       },
-      (error: Error) => done()
+      () => done()
     );
   });
 });
 
 // Helper method that is used everywhere that an assert.fail() is needed in a promise handler
-function rejectHandler(val: any): void {
+function rejectHandler(): void {
   assert.fail();
 }
 
@@ -424,10 +424,10 @@ function mockReturn(bodyText: string, statusCode: number, header = {}): void {
   require("superagent-mock")(request, [
     {
       pattern: "http://localhost/(\\w+)/?",
-      fixtures: function (match: any, params: any): any {
-        var isOk = statusCode >= 200 && statusCode < 300;
+      fixtures: function (): any {
+        const isOk = statusCode >= 200 && statusCode < 300;
         if (!isOk) {
-          var err: any = new Error(bodyText);
+          const err: any = new Error(bodyText);
           err.status = statusCode;
           throw err;
         }
