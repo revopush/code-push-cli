@@ -1131,13 +1131,12 @@ export const release = (command: cli.IReleaseCommand): Promise<void> => {
   return doRelease(command, updateMetadata);
 };
 
-interface BundleOptions {
+export interface BundleOptions {
   platform: string;
   development: boolean;
   outputFolder: string;
   bundleName: string;
-  /** Where Metro writes the source map */
-  sourceMap: string;
+  packagerSourceMap: string;
   extraBundlerOptions: string[];
 }
 
@@ -1146,7 +1145,7 @@ export const runExpoExportEmbedCommand = async ({
   development,
   outputFolder,
   bundleName,
-  sourceMap,
+  packagerSourceMap,
   extraBundlerOptions,
 }: BundleOptions) => {
   const expoBundleArgs: string[] = [];
@@ -1174,7 +1173,7 @@ export const runExpoExportEmbedCommand = async ({
     "--reset-cache",
   ]);
 
-  expoBundleArgs.push("--sourcemap-output", sourceMap);
+  expoBundleArgs.push("--sourcemap-output", packagerSourceMap);
 
   if (extraBundlerOptions.length > 0) {
     expoBundleArgs.push(...extraBundlerOptions);
@@ -1363,7 +1362,7 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
         development: command.development || false,
         outputFolder,
         bundleName,
-        sourceMap: sourceMaps.packager,
+        packagerSourceMap: sourceMaps.packager,
         extraBundlerOptions: command.extraBundlerOptions,
       });
 
@@ -1467,7 +1466,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
             development: command.development || false,
             outputFolder,
             bundleName,
-            sourceMap: sourceMaps.packager,
+            packagerSourceMap: sourceMaps.packager,
             extraBundlerOptions: command.extraBundlerOptions,
           },
           entryFile,
@@ -1796,7 +1795,7 @@ function requestAccessKey(): Promise<string> {
 }
 
 export const runReactNativeBundleCommand = async (
-  { platform, development, outputFolder, bundleName, sourceMap, extraBundlerOptions }: BundleOptions,
+  { platform, development, outputFolder, bundleName, packagerSourceMap, extraBundlerOptions }: BundleOptions,
   entryFile: string,
   isHermes: boolean
 ) => {
@@ -1827,7 +1826,7 @@ export const runReactNativeBundleCommand = async (
     "--reset-cache",
   ]);
 
-  reactNativeBundleArgs.push("--sourcemap-output", sourceMap);
+  reactNativeBundleArgs.push("--sourcemap-output", packagerSourceMap);
 
   const minifyValue = getMinifyParams(platform, isHermes);
   Array.prototype.push.apply(reactNativeBundleArgs, minifyValue);

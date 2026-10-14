@@ -88,10 +88,16 @@ describe("Source map paths", () => {
     });
   });
 
-  it("names the iOS map after SOURCEMAP_FILE from the Podfile's .xcode.env", () => {
+  it("names the iOS map after the bundle, or SOURCEMAP_FILE from the Podfile's .xcode.env", () => {
     const iosDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "revopush-ios-"));
     try {
       const podFile = path.join(iosDirectory, "Podfile");
+      const defaultMap = path.join("out", "main.jsbundle.map");
+      assert.deepStrictEqual(getSourceMapPaths({ platform: "ios", podFile }, "main.jsbundle", "out", true), {
+        packager: defaultMap,
+        final: defaultMap,
+      });
+
       fs.writeFileSync(path.join(iosDirectory, ".xcode.env"), "export SOURCEMAP_FILE=/build/custom.map\n");
       const map = path.join("out", "custom.map");
       assert.deepStrictEqual(getSourceMapPaths({ platform: "ios", podFile }, "main.jsbundle", "out", true), {

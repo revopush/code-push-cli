@@ -21,9 +21,9 @@ export interface SourceMapPaths {
   final: string;
 }
 
-/** Named as RN's builds name them. sourcemapOutput is a folder or the .map file itself */
+/** sourcemapOutput is a folder or the .map file itself; file names match RN's builds */
 export function getSourceMapPaths(
-  project: cli.NativeProject,
+  { platform, podFile }: cli.NativeProject,
   bundleName: string,
   sourcemapOutput: string,
   isHermes: boolean
@@ -31,29 +31,27 @@ export function getSourceMapPaths(
   if (sourcemapOutput.endsWith(".map")) {
     return { packager: sourcemapOutput, final: sourcemapOutput };
   }
-  if (project.platform === "android") {
-    // With Hermes, Metro's map is the "packager" one (BundleHermesCTask)
+  if (platform === "android") {
     const final = path.join(sourcemapOutput, bundleName + ".map");
-    return { packager: isHermes ? path.join(sourcemapOutput, bundleName + ".packager.map") : final, final };
+    // With Hermes, Metro's map is the "packager" one (BundleHermesCTask)
+    const packager = isHermes ? path.join(sourcemapOutput, bundleName + ".packager.map") : final;
+    return { packager, final };
   }
   // Same name as react-native-xcode.sh, since it ends up in the bundle's sourceMappingURL
-  const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE", project.podFile);
-  const packager = path.join(sourcemapOutput, sourceMapFile ? path.basename(sourceMapFile) : bundleName + ".map");
-  return { packager, final: packager };
+  const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE", podFile);
+  const sourceMap = path.join(sourcemapOutput, sourceMapFile ? path.basename(sourceMapFile) : bundleName + ".map");
+  return { packager: sourceMap, final: sourceMap };
 }
 
+type BaseRelease = Pick<cli.IReleaseReactCommand, "appName" | "deploymentName" | "appStoreVersion" | "buildNumber">;
+
 export async function takeHermesBaseBytecode(
-  release: Pick<cli.IReleaseReactCommand, "appName" | "deploymentName" | "appStoreVersion" | "buildNumber">,
+  { appName, deploymentName, appStoreVersion, buildNumber }: BaseRelease,
   baseReleaseTmpFolder: string,
   outputFolder: string,
   bundleName: string
 ): Promise<string | null> {
-  const { bundleBlobUrl } = await sdk.getBaseRelease(
-    release.appName,
-    release.deploymentName,
-    release.appStoreVersion,
-    release.buildNumber
-  );
+  const { bundleBlobUrl } = await sdk.getBaseRelease(appName, deploymentName, appStoreVersion, buildNumber);
   if (!bundleBlobUrl) {
     return null;
   }
@@ -75,7 +73,7 @@ export async function runHermesEmitBinaryCommand(
   bundle: string,
   sourceMaps: SourceMapPaths,
   extraHermesFlags: string[],
-  baseBytecode?: string
+  baseBytecode: string | null
 ): Promise<void> {
   const bytecode = bundle + ".hbc";
   const hermesc = await findHermesc(project);
@@ -103,10 +101,10 @@ export async function runHermesEmitBinaryCommand(
   await composeHermesSourceMaps(getComposeSourceMapsScript(project), bytecode + ".map", sourceMaps);
 }
 
-function getComposeSourceMapsScript(project: cli.NativeProject): string {
-  const defaultScript = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+function getComposeSourceMapsScript({ platform, podFile }: cli.NativeProject): string {
   // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
-  const script = (project.platform === "ios" && getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH", project.podFile)) || defaultScript;
+  const override = platform === "ios" ? getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH", podFile) : undefined;
+  const script = override || path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
   if (!fs.existsSync(script)) {
     throw new Error(`Source map compose script ${script} is not found`);
   }

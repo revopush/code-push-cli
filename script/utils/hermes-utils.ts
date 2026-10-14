@@ -18,9 +18,8 @@ function exe(name: string): string {
   return process.platform === "win32" ? `${name}.exe` : name;
 }
 
-export async function isHermesEnabled(project: cli.NativeProject): Promise<boolean> {
-  const enabled =
-    project.platform === "android" ? await getGradleHermesEnabled(project.gradleFile) : getIosHermesEnabled(project.podFile);
+export async function isHermesEnabled({ platform, gradleFile, podFile }: cli.NativeProject): Promise<boolean> {
+  const enabled = platform === "android" ? await getGradleHermesEnabled(gradleFile) : getIosHermesEnabled(podFile);
   // Hermes is the default engine since React Native 0.70
   return enabled ?? gte(coerce(getReactNativeVersion()) ?? "0.0.0", "0.70.0");
 }
