@@ -14,39 +14,45 @@ export function isValidVersion(version: string): boolean {
   return !!valid(version) || /^\d+\.\d+$/.test(version);
 }
 
-export function getBundleSourceMapOutput(
-  platform: string,
+export interface SourceMapPaths {
+  /** Written by Metro */
+  packager: string;
+  /** Released; differs from the packager map only for Hermes on Android */
+  final: string;
+}
+
+/** Named as RN's builds name them. sourcemapOutput is a folder or the .map file itself */
+export function getSourceMapPaths(
+  project: cli.NativeProject,
   bundleName: string,
-  sourcemapOutputFolder: string,
-  isHermes: boolean,
-  podFile?: string
-): string {
-  switch (platform) {
-    case "android": {
-      // With Hermes, Metro's map is the "packager" one (BundleHermesCTask)
-      return path.join(sourcemapOutputFolder, bundleName + (isHermes ? ".packager.map" : ".map"));
-    }
-    case "ios": {
-      // Same name as react-native-xcode.sh, since it ends up in the bundle's sourceMappingURL
-      const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE", podFile);
-      return path.join(sourcemapOutputFolder, sourceMapFile ? path.basename(sourceMapFile) : bundleName + ".map");
-    }
-    default:
-      throw new Error('Platform must be either "android" or "ios".');
+  sourcemapOutput: string,
+  isHermes: boolean
+): SourceMapPaths {
+  if (sourcemapOutput.endsWith(".map")) {
+    return { packager: sourcemapOutput, final: sourcemapOutput };
   }
+  if (project.platform === "android") {
+    // With Hermes, Metro's map is the "packager" one (BundleHermesCTask)
+    const final = path.join(sourcemapOutput, bundleName + ".map");
+    return { packager: isHermes ? path.join(sourcemapOutput, bundleName + ".packager.map") : final, final };
+  }
+  // Same name as react-native-xcode.sh, since it ends up in the bundle's sourceMappingURL
+  const sourceMapFile = getXcodeDotEnvValue("SOURCEMAP_FILE", project.podFile);
+  const packager = path.join(sourcemapOutput, sourceMapFile ? path.basename(sourceMapFile) : bundleName + ".map");
+  return { packager, final: packager };
 }
 
 export async function takeHermesBaseBytecode(
-  command: cli.IReleaseReactCommand,
+  release: Pick<cli.IReleaseReactCommand, "appName" | "deploymentName" | "appStoreVersion" | "buildNumber">,
   baseReleaseTmpFolder: string,
   outputFolder: string,
   bundleName: string
 ): Promise<string | null> {
   const { bundleBlobUrl } = await sdk.getBaseRelease(
-    command.appName,
-    command.deploymentName,
-    command.appStoreVersion,
-    command.buildNumber
+    release.appName,
+    release.deploymentName,
+    release.appStoreVersion,
+    release.buildNumber
   );
   if (!bundleBlobUrl) {
     return null;
@@ -65,17 +71,14 @@ export async function takeHermesBaseBytecode(
 }
 
 export async function runHermesEmitBinaryCommand(
-  command: cli.IReleaseReactCommand,
-  bundleName: string,
-  outputFolder: string,
-  sourcemapOutputFolder: string,
+  project: cli.NativeProject,
+  bundle: string,
+  sourceMaps: SourceMapPaths,
   extraHermesFlags: string[],
-  gradleFile: string,
   baseBytecode?: string
 ): Promise<void> {
-  const bundle = path.join(outputFolder, bundleName);
   const bytecode = bundle + ".hbc";
-  const hermesc = await findHermesc(command.platform, gradleFile, command.podFile);
+  const hermesc = await findHermesc(project);
 
   const hermesArgs = [
     ...(process.env.CODE_PUSH_NODE_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []),
@@ -87,10 +90,8 @@ export async function runHermesEmitBinaryCommand(
     "-w",
     "-max-diagnostic-width=80",
     ...extraHermesFlags,
+    "-output-source-map",
   ];
-  if (sourcemapOutputFolder) {
-    hermesArgs.push("-output-source-map");
-  }
   if (baseBytecode && isBaseBytecodeCompatible(baseBytecode, hermesc)) {
     hermesArgs.push("-base-bytecode", baseBytecode);
   }
@@ -99,43 +100,29 @@ export async function runHermesEmitBinaryCommand(
   await runCommand("hermes", hermesc, hermesArgs);
   await fs.promises.rename(bytecode, bundle);
 
-  if (sourcemapOutputFolder) {
-    await composeHermesSourceMaps(command, bundleName, outputFolder, sourcemapOutputFolder);
+  await composeHermesSourceMaps(getComposeSourceMapsScript(project), bytecode + ".map", sourceMaps);
+}
+
+function getComposeSourceMapsScript(project: cli.NativeProject): string {
+  const defaultScript = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+  // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
+  const script = (project.platform === "ios" && getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH", project.podFile)) || defaultScript;
+  if (!fs.existsSync(script)) {
+    throw new Error(`Source map compose script ${script} is not found`);
   }
+  return script;
 }
 
 // Packager + Hermes source maps = final source map, as RN's build does
-async function composeHermesSourceMaps(
-  command: cli.IReleaseReactCommand,
-  bundleName: string,
-  outputFolder: string,
-  sourcemapOutputFolder: string
-): Promise<void> {
-  let composeSourceMaps = path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
-  // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
-  if (command.platform === "ios") {
-    composeSourceMaps = getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH", command.podFile) || composeSourceMaps;
-  }
-  if (!fs.existsSync(composeSourceMaps)) {
-    throw new Error(`Source map compose script ${composeSourceMaps} is not found`);
-  }
-
-  const hermesSourceMap = path.join(outputFolder, bundleName + ".hbc.map");
+async function composeHermesSourceMaps(composeScript: string, hermesSourceMap: string, sourceMaps: SourceMapPaths): Promise<void> {
   if (!fs.existsSync(hermesSourceMap)) {
     throw new Error(`sourcemap file ${hermesSourceMap} is not found`);
   }
 
-  let packagerSourceMap = sourcemapOutputFolder;
-  let combinedSourceMap = sourcemapOutputFolder;
-  if (!sourcemapOutputFolder.endsWith(".map")) {
-    packagerSourceMap = getBundleSourceMapOutput(command.platform, bundleName, sourcemapOutputFolder, true, command.podFile);
-    combinedSourceMap = command.platform === "android" ? path.join(sourcemapOutputFolder, bundleName + ".map") : packagerSourceMap;
-  }
-
   // Read before composing: on iOS the composed map overwrites the packager map
-  const packagerSourceMapJson = JSON.parse(await fs.promises.readFile(packagerSourceMap, "utf8"));
-  await runCommand("compose-source-maps", "node", [composeSourceMaps, packagerSourceMap, hermesSourceMap, "-o", combinedSourceMap]);
-  const restoredFields = await restoreSourceMapMetadata(combinedSourceMap, packagerSourceMapJson);
+  const packagerSourceMapJson = JSON.parse(await fs.promises.readFile(sourceMaps.packager, "utf8"));
+  await runCommand("compose-source-maps", "node", [composeScript, sourceMaps.packager, hermesSourceMap, "-o", sourceMaps.final]);
+  const restoredFields = await restoreSourceMapMetadata(sourceMaps.final, packagerSourceMapJson);
   if (restoredFields.length > 0) {
     console.log(`Restored packager source map metadata: ${restoredFields.join(", ")}`);
   }

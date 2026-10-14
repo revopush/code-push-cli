@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { restoreSourceMapMetadata } from "../script/utils/source-map-utils";
+import { getSourceMapPaths } from "../script/react-native-utils";
 
 describe("Source map metadata", () => {
   let testDirectory: string;
@@ -72,5 +73,41 @@ describe("Source map metadata", () => {
     assert.deepStrictEqual(await restoreSourceMapMetadata(composed, { version: 3 }), []);
     assert.deepStrictEqual(await restoreSourceMapMetadata(composed, { debugId: "from-packager" }), []);
     assert.strictEqual(fs.readFileSync(composed, "utf8"), contents);
+  });
+});
+
+describe("Source map paths", () => {
+  it("names the Android maps like the Gradle plugin", () => {
+    assert.deepStrictEqual(getSourceMapPaths({ platform: "android" }, "index.android.bundle", "out", true), {
+      packager: path.join("out", "index.android.bundle.packager.map"),
+      final: path.join("out", "index.android.bundle.map"),
+    });
+    assert.deepStrictEqual(getSourceMapPaths({ platform: "android" }, "index.android.bundle", "out", false), {
+      packager: path.join("out", "index.android.bundle.map"),
+      final: path.join("out", "index.android.bundle.map"),
+    });
+  });
+
+  it("names the iOS map after SOURCEMAP_FILE from the Podfile's .xcode.env", () => {
+    const iosDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "revopush-ios-"));
+    try {
+      const podFile = path.join(iosDirectory, "Podfile");
+      fs.writeFileSync(path.join(iosDirectory, ".xcode.env"), "export SOURCEMAP_FILE=/build/custom.map\n");
+      const map = path.join("out", "custom.map");
+      assert.deepStrictEqual(getSourceMapPaths({ platform: "ios", podFile }, "main.jsbundle", "out", true), {
+        packager: map,
+        final: map,
+      });
+    } finally {
+      fs.rmSync(iosDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("uses a .map sourcemapOutput as is", () => {
+    const map = path.join("out", "app.map");
+    assert.deepStrictEqual(getSourceMapPaths({ platform: "android" }, "index.android.bundle", map, true), {
+      packager: map,
+      final: map,
+    });
   });
 });

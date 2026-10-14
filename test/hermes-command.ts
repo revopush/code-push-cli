@@ -52,26 +52,29 @@ describe("Hermes command resolution", () => {
   it("resolves a literal hermesCommand from the react block against the project root", async () => {
     bundledHermesc();
     createFile("android/app/build.gradle", 'react {\n    hermesCommand = "custom/%OS-BIN%/hermesc"\n}\n');
-    assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
+    assert.strictEqual(await findHermesc({ platform: "android" }), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
   });
 
   it("expands $rootDir in hermesCommand", async () => {
     bundledHermesc();
     createFile("android/app/build.gradle", 'react {\n    hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"\n}\n');
-    assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "android", "my-custom-hermesc", "bin", "hermesc"));
+    assert.strictEqual(
+      await findHermesc({ platform: "android" }),
+      path.join(projectDirectory, "android", "my-custom-hermesc", "bin", "hermesc")
+    );
   });
 
   it("reads a literal hermesCommand from a Kotlin DSL build script", async () => {
     bundledHermesc();
     fs.rmSync(path.join(projectDirectory, "android", "app", "build.gradle"));
     createFile("android/app/build.gradle.kts", 'react {\n    hermesCommand.set("custom/%OS-BIN%/hermesc")\n}\n');
-    assert.strictEqual(await findHermesc("android"), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
+    assert.strictEqual(await findHermesc({ platform: "android" }), path.join(projectDirectory, "custom", OS_BIN, "hermesc"));
   });
 
   it("ignores a commented-out hermesCommand", async () => {
     const bundled = bundledHermesc();
     createFile("android/app/build.gradle", 'react {\n    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"\n}\n');
-    assert.strictEqual(fs.realpathSync(await findHermesc("android")), bundled);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), bundled);
   });
 
   it("ignores a computed hermesCommand expression such as Expo's", async () => {
@@ -80,7 +83,7 @@ describe("Hermes command resolution", () => {
       "android/app/build.gradle",
       'react {\n    hermesCommand = new File(["node", "--print", "require.resolve(\'react-native/package.json\')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"\n}\n'
     );
-    assert.strictEqual(fs.realpathSync(await findHermesc("android")), expected);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), expected);
   });
 
   it("ignores Expo SDK 55's hermesCommand expression without a warning", async () => {
@@ -91,7 +94,7 @@ describe("Hermes command resolution", () => {
     );
     const log = sinon.stub(cmdexec, "log");
     try {
-      assert.strictEqual(fs.realpathSync(await findHermesc("android")), expected);
+      assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), expected);
       sinon.assert.notCalled(log);
     } finally {
       log.restore();
@@ -101,72 +104,70 @@ describe("Hermes command resolution", () => {
   it("prefers the bundled hermesc unless Hermes V1 is enabled", async () => {
     const bundled = bundledHermesc();
     const compiler = hermesCompiler();
-    assert.strictEqual(fs.realpathSync(await findHermesc("android")), bundled);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), bundled);
 
     createFile("android/gradle.properties", "hermesEnabled=true\nhermesV1Enabled=true\n");
-    assert.strictEqual(fs.realpathSync(await findHermesc("android")), compiler);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), compiler);
   });
 
   it("resolves hermes-compiler through react-native when it is not hoisted", async () => {
     const compiler = hermesCompiler("node_modules/react-native/node_modules");
-    assert.strictEqual(fs.realpathSync(await findHermesc("android")), compiler);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), compiler);
   });
 
   it("uses HERMES_CLI_PATH on iOS", async () => {
     hermesCompiler();
     process.env.HERMES_CLI_PATH = "/custom/hermesc";
-    assert.strictEqual(await findHermesc("ios"), "/custom/hermesc");
+    assert.strictEqual(await findHermesc({ platform: "ios" }), "/custom/hermesc");
   });
 
   it("reads HERMES_CLI_PATH from ios/.xcode.env.local", async () => {
     createFile("ios/.xcode.env", "export HERMES_CLI_PATH=/env/hermesc\n");
     createFile("ios/.xcode.env.local", "export HERMES_CLI_PATH=/xcode/hermesc\n");
-    assert.strictEqual(await findHermesc("ios"), "/xcode/hermesc");
+    assert.strictEqual(await findHermesc({ platform: "ios" }), "/xcode/hermesc");
   });
 
   it("prefers the Podfile's .xcode.env over PODFILE_DIR over ios/", async () => {
     createFile("ios/.xcode.env", "export HERMES_CLI_PATH=/ios/hermesc\n");
     createFile("apps/mobile/ios/.xcode.env", "export HERMES_CLI_PATH=/podfile/hermesc\n");
     createFile("pods/.xcode.env", "export HERMES_CLI_PATH=/podfile-dir/hermesc\n");
-    assert.strictEqual(await findHermesc("ios"), "/ios/hermesc");
+    assert.strictEqual(await findHermesc({ platform: "ios" }), "/ios/hermesc");
 
     process.env.PODFILE_DIR = path.join(projectDirectory, "pods");
-    assert.strictEqual(await findHermesc("ios"), "/podfile-dir/hermesc");
-    assert.strictEqual(await findHermesc("ios", undefined, "apps/mobile/ios/Podfile"), "/podfile/hermesc");
+    assert.strictEqual(await findHermesc({ platform: "ios" }), "/podfile-dir/hermesc");
+    assert.strictEqual(await findHermesc({ platform: "ios", podFile: "apps/mobile/ios/Podfile" }), "/podfile/hermesc");
   });
 
   it("ignores a HERMES_CLI_PATH that references Xcode variables", async () => {
     const compiler = hermesCompiler();
     createFile("ios/.xcode.env", 'export HERMES_CLI_PATH="$PODS_ROOT/custom/hermesc"\n');
-    assert.strictEqual(fs.realpathSync(await findHermesc("ios")), compiler);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "ios" })), compiler);
   });
 
   it("prefers hermes-compiler on iOS, skipping RN 0.82's empty placeholder package", async () => {
     const bundled = bundledHermesc();
     createFile("node_modules/hermes-compiler/package.json", JSON.stringify({ name: "hermes-compiler", version: "0.0.0" }));
-    assert.strictEqual(fs.realpathSync(await findHermesc("ios")), bundled);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "ios" })), bundled);
 
     const compiler = hermesCompiler();
-    assert.strictEqual(fs.realpathSync(await findHermesc("ios")), compiler);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "ios" })), compiler);
   });
 
   it("finds the hermes binary of RN < 0.64's hermes-engine package", async () => {
     createFile("node_modules/hermes-engine/package.json", JSON.stringify({ name: "hermes-engine", version: "0.4.0" }));
     const hermes = createFile(`node_modules/hermes-engine/${OS_BIN}/${process.platform === "win32" ? "hermes.exe" : "hermes"}`);
-    assert.strictEqual(fs.realpathSync(await findHermesc("android")), hermes);
+    assert.strictEqual(fs.realpathSync(await findHermesc({ platform: "android" })), hermes);
   });
 
   it("fails with the setting to use when no hermesc is found", async () => {
-    await assert.rejects(findHermesc("android"), /Set react\.hermesCommand/);
-    await assert.rejects(findHermesc("ios"), /Set HERMES_CLI_PATH/);
+    await assert.rejects(findHermesc({ platform: "android" }), /Set react\.hermesCommand/);
+    await assert.rejects(findHermesc({ platform: "ios" }), /Set HERMES_CLI_PATH/);
   });
 
   describe("Hermes enabled detection", () => {
-    const command = (platform: string): any => ({ platform });
-
     it("reads hermesEnabled from gradle.properties", async () => {
       createFile("android/gradle.properties", "hermesEnabled=false\n");
-      assert.strictEqual(await isHermesEnabled(command("android")), false);
+      assert.strictEqual(await isHermesEnabled({ platform: "android" }), false);
     });
 
     it("reads enableHermes after a commented project.ext.react entry", async () => {
@@ -176,34 +177,34 @@ describe("Hermes command resolution", () => {
         "android/app/build.gradle",
         'project.ext.react = [\n    entryFile: "index.js",  // entry\n    enableHermes: true\n]\n'
       );
-      assert.strictEqual(await isHermesEnabled(command("android")), true);
+      assert.strictEqual(await isHermesEnabled({ platform: "android" }), true);
     });
 
     it("reads enableHermes from RN < 0.71's project.ext.react", async () => {
       createFile("android/gradle.properties", "");
       createFile("android/app/build.gradle", "project.ext.react = [\n    enableHermes: false\n]\n");
-      assert.strictEqual(await isHermesEnabled(command("android")), false);
+      assert.strictEqual(await isHermesEnabled({ platform: "android" }), false);
     });
 
     it("reads hermes_enabled from the Podfile, ignoring comments", async () => {
       createFile("ios/Podfile", "# :hermes_enabled => true\nuse_react_native!(\n  :hermes_enabled => false\n)\n");
-      assert.strictEqual(await isHermesEnabled(command("ios")), false);
+      assert.strictEqual(await isHermesEnabled({ platform: "ios" }), false);
     });
 
     it("reads the scoped react.hermesEnabled property", async () => {
       createFile("android/gradle.properties", "react.hermesEnabled=false\n");
-      assert.strictEqual(await isHermesEnabled(command("android")), false);
+      assert.strictEqual(await isHermesEnabled({ platform: "android" }), false);
     });
 
     it("reads the USE_HERMES build setting pod install writes into the Xcode project", async () => {
       createFile("ios/Podfile", "use_react_native!(\n  :hermes_enabled => true\n)\n");
       createFile("ios/App.xcodeproj/project.pbxproj", "buildSettings = {\n\t\t\t\tUSE_HERMES = false;\n};\n");
-      assert.strictEqual(await isHermesEnabled(command("ios")), false);
+      assert.strictEqual(await isHermesEnabled({ platform: "ios" }), false);
     });
 
     it("defaults to Hermes on RN 0.70+", async () => {
       createFile("android/gradle.properties", "");
-      assert.strictEqual(await isHermesEnabled(command("android")), true);
+      assert.strictEqual(await isHermesEnabled({ platform: "android" }), true);
     });
   });
 

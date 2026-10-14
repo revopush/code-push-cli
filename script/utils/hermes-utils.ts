@@ -18,9 +18,9 @@ function exe(name: string): string {
   return process.platform === "win32" ? `${name}.exe` : name;
 }
 
-export async function isHermesEnabled(command: cli.IReleaseReactCommand, platform = command.platform.toLowerCase()): Promise<boolean> {
-  if (command.useHermes) return true;
-  const enabled = platform === "android" ? await getGradleHermesEnabled(command.gradleFile) : getIosHermesEnabled(command.podFile);
+export async function isHermesEnabled(project: cli.NativeProject): Promise<boolean> {
+  const enabled =
+    project.platform === "android" ? await getGradleHermesEnabled(project.gradleFile) : getIosHermesEnabled(project.podFile);
   // Hermes is the default engine since React Native 0.70
   return enabled ?? gte(coerce(getReactNativeVersion()) ?? "0.0.0", "0.70.0");
 }
@@ -45,7 +45,7 @@ function matchInFiles(files: string[], pattern: RegExp): string | undefined {
 }
 
 /** The hermesc RN's build uses: Gradle plugin PathUtils.detectOSAwareHermesCommand, iOS react-native-xcode.sh */
-export async function findHermesc(platform: string, gradleFile?: string, podFile?: string): Promise<string> {
+export async function findHermesc({ platform, gradleFile, podFile }: cli.NativeProject): Promise<string> {
   const configured =
     platform === "ios"
       ? getXcodeDotEnvValue("HERMES_CLI_PATH", podFile)
