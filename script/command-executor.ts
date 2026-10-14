@@ -36,6 +36,7 @@ import {
   getSourceMapPaths,
   isValidVersion,
   runHermesEmitBinaryCommand,
+  SourceMapPaths,
   takeHermesBaseBytecode,
 } from "./react-native-utils";
 import { isHermesEnabled } from "./utils/hermes-utils";
@@ -1278,6 +1279,35 @@ function validateReactReleaseCommand(
   return { platform, bundleName, entryFile, projectName };
 }
 
+interface BundlePlan {
+  isHermes: boolean;
+  sourceMaps: SourceMapPaths;
+  bundleOptions: BundleOptions;
+}
+
+// Shared by release-react and release-expo: what to bundle and where the source maps go
+async function planBundle(
+  command: cli.IReleaseReactCommand,
+  outputFolder: string,
+  bundleName: string,
+  sourcemapOutput: string
+): globalThis.Promise<BundlePlan> {
+  const isHermes = command.useHermes || (await isHermesEnabled(command));
+  const sourceMaps = getSourceMapPaths(command, bundleName, sourcemapOutput, isHermes);
+  return {
+    isHermes,
+    sourceMaps,
+    bundleOptions: {
+      platform: command.platform,
+      development: command.development || false,
+      outputFolder,
+      bundleName,
+      packagerSourceMap: sourceMaps.packager,
+      extraBundlerOptions: command.extraBundlerOptions,
+    },
+  };
+}
+
 function validateGeneratedReleaseSizes(
   command: cli.IReleaseReactCommand,
   outputFolder: string,
@@ -1355,16 +1385,8 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
     })
     .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
     .then(async () => {
-      const isHermes = command.useHermes || (await isHermesEnabled(command));
-      const sourceMaps = getSourceMapPaths(command, bundleName, sourcemapOutputFolder, isHermes);
-      await runExpoExportEmbedCommand({
-        platform,
-        development: command.development || false,
-        outputFolder,
-        bundleName,
-        packagerSourceMap: sourceMaps.packager,
-        extraBundlerOptions: command.extraBundlerOptions,
-      });
+      const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
+      await runExpoExportEmbedCommand(bundleOptions);
 
       if (isHermes) {
         await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
@@ -1458,20 +1480,8 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       // https://github.com/facebook/react-native/issues/4289
       .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
       .then(async () => {
-        const isHermes = command.useHermes || (await isHermesEnabled(command));
-        const sourceMaps = getSourceMapPaths(command, bundleName, sourcemapOutputFolder, isHermes);
-        await runReactNativeBundleCommand(
-          {
-            platform,
-            development: command.development || false,
-            outputFolder,
-            bundleName,
-            packagerSourceMap: sourceMaps.packager,
-            extraBundlerOptions: command.extraBundlerOptions,
-          },
-          entryFile,
-          isHermes
-        );
+        const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
+        await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
 
         if (isHermes) {
           await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
