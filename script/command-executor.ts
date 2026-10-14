@@ -1170,7 +1170,7 @@ export const runExpoExportEmbedCommand = async (
   if (sourcemapOutputFolder) {
     let bundleSourceMapOutput = sourcemapOutputFolder;
     if (!sourcemapOutputFolder.endsWith(".map")) {
-      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes);
+      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes, command.podFile);
     }
 
     expoBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);
@@ -1853,7 +1853,7 @@ export const runReactNativeBundleCommand = async (
   if (sourcemapOutputFolder) {
     let bundleSourceMapOutput = sourcemapOutputFolder;
     if (!sourcemapOutputFolder.endsWith(".map")) {
-      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes);
+      bundleSourceMapOutput = getBundleSourceMapOutput(platform, bundleName, sourcemapOutputFolder, isHermes, command.podFile);
     }
 
     reactNativeBundleArgs.push("--sourcemap-output", bundleSourceMapOutput);

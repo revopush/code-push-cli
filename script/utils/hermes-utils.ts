@@ -45,9 +45,11 @@ function matchInFiles(files: string[], pattern: RegExp): string | undefined {
 }
 
 /** The hermesc RN's build uses: Gradle plugin PathUtils.detectOSAwareHermesCommand, iOS react-native-xcode.sh */
-export async function findHermesc(platform: string, gradleFile?: string): Promise<string> {
+export async function findHermesc(platform: string, gradleFile?: string, podFile?: string): Promise<string> {
   const configured =
-    platform === "ios" ? getXcodeDotEnvValue("HERMES_CLI_PATH") : getGradleHermesCommand(gradleFile)?.replace("%OS-BIN%", OS_BIN);
+    platform === "ios"
+      ? getXcodeDotEnvValue("HERMES_CLI_PATH", podFile)
+      : getGradleHermesCommand(gradleFile)?.replace("%OS-BIN%", OS_BIN);
   // Values referencing Xcode variables like $PODS_ROOT can't be resolved here
   if (configured && !configured.includes("$")) return configured;
 
