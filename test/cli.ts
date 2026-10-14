@@ -4,6 +4,7 @@
 import * as assert from "assert";
 import * as sinon from "sinon";
 import Q = require("q");
+import * as fs from "fs";
 import * as path from "path";
 import * as codePush from "../script/types";
 import * as cli from "../script/types/cli";
@@ -53,6 +54,10 @@ export class SdkStub {
     },
   };
 
+  public isAuthenticated(): Q.Promise<boolean> {
+    return Q(true);
+  }
+
   public getAccountInfo(): Q.Promise<codePush.Account> {
     return Q(<codePush.Account>{
       email: "a@a.com",
@@ -68,7 +73,7 @@ export class SdkStub {
     });
   }
 
-  public patchAccessKey(newName?: string, newTtl?: number): Q.Promise<codePush.AccessKey> {
+  public patchAccessKey(oldName: string, newName?: string, newTtl?: number): Q.Promise<codePush.AccessKey> {
     return Q(<codePush.AccessKey>{
       createdTime: new Date().getTime(),
       name: newName,
@@ -274,16 +279,19 @@ describe("CLI", () => {
     wasConfirmed = true;
 
     sandbox = sinon.createSandbox();
+    (<any>cmdexec).sdk = new SdkStub();
 
-    sandbox.stub(cmdexec, "confirm").returns(
-      Q.Promise((resolve) => {
-        resolve(wasConfirmed);
-      })
-    );
+    sandbox.stub(cmdexec, "confirm").callsFake(() => Q(wasConfirmed));
 
     sandbox.stub(cmdexec, "createEmptyTempReleaseFolder").callsFake(() => Q.Promise<void>((resolve) => resolve()));
     log = sandbox.stub(cmdexec, "log").callsFake(() => {});
-    spawn = sandbox.stub(cmdexec, "spawn").callsFake(() => {
+    spawn = sandbox.stub(cmdexec, "spawn").callsFake((command: string, args: string[] = []) => {
+      // Stand in for the bundler's output, which the release checks read
+      const bundleOutput = args.indexOf("--bundle-output");
+      if (bundleOutput !== -1) {
+        fs.mkdirSync(path.dirname(args[bundleOutput + 1]), { recursive: true });
+        fs.writeFileSync(args[bundleOutput + 1], "");
+      }
       return {
         stdout: { on: () => {} },
         stderr: { on: () => {} },
@@ -838,7 +846,7 @@ describe("CLI", () => {
       assert.equal(log.args[0].length, 1);
 
       var actual: string = log.args[0][0];
-      var expected: codePush.Package[] = [
+      var expected: (codePush.Package & cmdexec.PackageWithMetrics)[] = [
         {
           description: null,
           appVersion: "1.0.0",
@@ -848,6 +856,7 @@ describe("CLI", () => {
           uploadTime: 1447113596270,
           size: 1,
           label: "v1",
+          metrics: { active: 789, downloaded: 456, failed: 654, installed: 987, totalActive: 1035 },
         },
         {
           description: "New update - this update does a whole bunch of things, including testing linewrapping",
@@ -858,6 +867,7 @@ describe("CLI", () => {
           uploadTime: 1447118476669,
           size: 2,
           label: "v2",
+          metrics: { active: 123, downloaded: 321, failed: 789, installed: 456, totalActive: 1035 },
         },
       ];
 
@@ -972,6 +982,7 @@ describe("CLI", () => {
       appName: "a",
       sourceDeploymentName: "Staging",
       destDeploymentName: "Production",
+      label: null,
       description: "Promoted",
       mandatory: true,
       rollout: 25,
@@ -998,6 +1009,7 @@ describe("CLI", () => {
       appName: "a",
       sourceDeploymentName: "Staging",
       destDeploymentName: "Production",
+      label: null,
       description: "Promoted",
       mandatory: true,
       rollout: 25,
@@ -1111,9 +1123,13 @@ describe("CLI", () => {
       mandatory: false,
       rollout: null,
       platform: "ios",
+      extraBundlerOptions: [],
+      extraHermesFlags: [],
     };
 
     var release: sinon.SinonSpy = sandbox.spy(cmdexec, "release");
+    var originalCwd = process.cwd();
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), "revopush-no-package-")));
 
     cmdexec
       .execute(command)
@@ -1123,12 +1139,13 @@ describe("CLI", () => {
       .catch((err) => {
         assert.equal(
           err.message,
-          'Unable to find or read "package.json" in the CWD. The "release-react" command must be executed in a React Native project folder.'
+          'Unable to find or read "package.json" in the CWD. The command must be executed in a React Native project folder.'
         );
         sinon.assert.notCalled(release);
         sinon.assert.notCalled(spawn);
         done();
       })
+      .finally(() => process.chdir(originalCwd))
       .done();
   });
 
@@ -1143,6 +1160,8 @@ describe("CLI", () => {
       mandatory: false,
       rollout: null,
       platform: "ios",
+      extraBundlerOptions: [],
+      extraHermesFlags: [],
     };
 
     ensureInTestAppDirectory();
@@ -1173,6 +1192,8 @@ describe("CLI", () => {
       mandatory: false,
       rollout: null,
       platform: "blackberry",
+      extraBundlerOptions: [],
+      extraHermesFlags: [],
     };
 
     ensureInTestAppDirectory();
@@ -1185,7 +1206,7 @@ describe("CLI", () => {
         done(new Error("Did not throw error."));
       })
       .catch((err) => {
-        assert.equal(err.message, 'Platform must be either "android", "ios" or "windows".');
+        assert.equal(err.message, 'Platform must be either "android" or "ios".');
         sinon.assert.notCalled(release);
         sinon.assert.notCalled(spawn);
         done();
@@ -1206,6 +1227,8 @@ describe("CLI", () => {
       rollout: null,
       platform: "android",
       sourcemapOutput: "index.android.js.map",
+      extraBundlerOptions: [],
+      extraHermesFlags: [],
     };
 
     ensureInTestAppDirectory();
@@ -1226,414 +1249,117 @@ describe("CLI", () => {
       .done();
   });
 
-  it("release-react defaults entry file to index.{platform}.js if not provided", (done: Mocha.Done): void => {
-    var bundleName = "bundle.js";
-    var command: cli.IReleaseReactCommand = {
+  function releaseReactCommand(overrides: Partial<cli.IReleaseReactCommand> = {}): cli.IReleaseReactCommand {
+    return {
       type: cli.CommandType.releaseReact,
       appName: "a",
       appStoreVersion: null,
-      bundleName: bundleName,
       deploymentName: "Staging",
-      description: "Test default entry file",
+      description: "Test release",
       mandatory: false,
       rollout: null,
       platform: "ios",
+      // Defaults the argument parser sets
+      extraBundlerOptions: [],
+      extraHermesFlags: [],
+      ...overrides,
     };
+  }
 
+  // Runs release-react in the test app against the stub SDK, returning the bundler arguments and the uploaded release metadata
+  function runReleaseReact(command: cli.IReleaseReactCommand): Q.Promise<{ bundlerArgs: string[]; metadata: any }> {
     ensureInTestAppDirectory();
+    const sdkRelease: sinon.SinonStub = sandbox.stub(cmdexec.sdk, "release").returns(Q(<void>null));
 
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
+    return cmdexec.execute(command).then(() => {
+      sinon.assert.calledOnce(spawn);
+      assert.equal(spawn.args[0][0], "node");
+      sinon.assert.calledOnce(sdkRelease);
+      return { bundlerArgs: spawn.args[0][1], metadata: sdkRelease.args[0][3] };
+    });
+  }
 
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>command;
-        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.appStoreVersion = "1.2.3";
+  function argValue(args: string[], flag: string): string {
+    return String(args[args.indexOf(flag) + 1]);
+  }
 
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
-            os.tmpdir(),
-            "CodePush"
-          )} --bundle-output ${path.join(os.tmpdir(), "CodePush", bundleName)} --dev false --entry-file index.ios.js --platform ios`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+  it("release-react defaults entry file to index.{platform}.js if not provided", (done: Mocha.Done): void => {
+    runReleaseReact(releaseReactCommand({ platform: "ios" }))
+      .then(({ bundlerArgs }) => {
+        assert.equal(argValue(bundlerArgs, "--entry-file"), "index.ios.js");
         done();
       })
       .done();
   });
 
   it('release-react defaults bundle name to "main.jsbundle" if not provided and platform is "ios"', (done: Mocha.Done): void => {
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      deploymentName: "Staging",
-      description: "Test default entry file",
-      mandatory: false,
-      rollout: null,
-      platform: "ios",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>clone(command);
-        var packagePath: string = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.package = packagePath;
-        releaseCommand.appStoreVersion = "1.2.3";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join(
-            "node_modules",
-            "react-native",
-            "local-cli",
-            "cli.js"
-          )} bundle --assets-dest ${packagePath} --bundle-output ${path.join(
-            packagePath,
-            "main.jsbundle"
-          )} --dev false --entry-file index.ios.js --platform ios`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+    runReleaseReact(releaseReactCommand({ platform: "ios" }))
+      .then(({ bundlerArgs, metadata }) => {
+        assert.equal(argValue(bundlerArgs, "--bundle-output"), path.join(os.tmpdir(), "CodePush", "main.jsbundle"));
+        assert.equal(metadata.bundleName, "main.jsbundle");
         done();
       })
       .done();
   });
 
   it('release-react defaults bundle name to "index.android.bundle" if not provided and platform is "android"', (done: Mocha.Done): void => {
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      deploymentName: "Staging",
-      description: "Test default entry file",
-      mandatory: false,
-      rollout: null,
-      platform: "android",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>clone(command);
-        var packagePath: string = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.package = packagePath;
-        releaseCommand.appStoreVersion = "1.0.0";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join(
-            "node_modules",
-            "react-native",
-            "local-cli",
-            "cli.js"
-          )} bundle --assets-dest ${packagePath} --bundle-output ${path.join(
-            packagePath,
-            "index.android.bundle"
-          )} --dev false --entry-file index.android.js --platform android`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
-        done();
-      })
-      .done();
-  });
-
-  it('release-react defaults bundle name to "index.windows.bundle" if not provided and platform is "windows"', (done: Mocha.Done): void => {
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      deploymentName: "Staging",
-      description: "Test default entry file",
-      mandatory: false,
-      rollout: null,
-      platform: "windows",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>clone(command);
-        var packagePath = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.package = packagePath;
-        releaseCommand.appStoreVersion = "1.0.0";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join(
-            "node_modules",
-            "react-native",
-            "local-cli",
-            "cli.js"
-          )} bundle --assets-dest ${packagePath} --bundle-output ${path.join(
-            packagePath,
-            "index.windows.bundle"
-          )} --dev false --entry-file index.windows.js --platform windows`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+    runReleaseReact(releaseReactCommand({ platform: "android" }))
+      .then(({ bundlerArgs, metadata }) => {
+        assert.equal(argValue(bundlerArgs, "--bundle-output"), path.join(os.tmpdir(), "CodePush", "index.android.bundle"));
+        assert.equal(argValue(bundlerArgs, "--entry-file"), "index.android.js");
+        assert.equal(metadata.bundleName, "index.android.bundle");
         done();
       })
       .done();
   });
 
   it("release-react generates dev bundle", (done: Mocha.Done): void => {
-    var bundleName = "bundle.js";
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      bundleName: bundleName,
-      deploymentName: "Staging",
-      development: true,
-      description: "Test generates dev bundle",
-      mandatory: false,
-      rollout: null,
-      platform: "android",
-      sourcemapOutput: "index.android.js.map",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>command;
-        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.appStoreVersion = "1.2.3";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
-            os.tmpdir(),
-            "CodePush"
-          )} --bundle-output ${path.join(
-            os.tmpdir(),
-            "CodePush",
-            bundleName
-          )} --dev true --entry-file index.android.js --platform android --sourcemap-output index.android.js.map`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+    runReleaseReact(releaseReactCommand({ platform: "android", development: true }))
+      .then(({ bundlerArgs }) => {
+        assert.equal(argValue(bundlerArgs, "--dev"), "true");
         done();
       })
       .done();
   });
 
   it("release-react generates sourcemaps", (done: Mocha.Done): void => {
-    var bundleName = "bundle.js";
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      bundleName: bundleName,
-      deploymentName: "Staging",
-      description: "Test generates sourcemaps",
-      mandatory: false,
-      rollout: null,
-      platform: "android",
-      sourcemapOutput: "index.android.js.map",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>command;
-        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.appStoreVersion = "1.2.3";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
-            os.tmpdir(),
-            "CodePush"
-          )} --bundle-output ${path.join(
-            os.tmpdir(),
-            "CodePush",
-            bundleName
-          )} --dev false --entry-file index.android.js --platform android --sourcemap-output index.android.js.map`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+    runReleaseReact(releaseReactCommand({ platform: "android", sourcemapOutput: "index.android.js.map" }))
+      .then(({ bundlerArgs }) => {
+        assert.equal(argValue(bundlerArgs, "--sourcemap-output"), "index.android.js.map");
         done();
       })
       .done();
   });
 
   it("release-react uses specified targetBinaryRange option", (done: Mocha.Done): void => {
-    var bundleName = "bundle.js";
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: ">=1.0.0 <1.0.5",
-      bundleName: bundleName,
-      deploymentName: "Staging",
-      description: "Test uses targetBinaryRange",
-      mandatory: false,
-      rollout: null,
-      platform: "android",
-      sourcemapOutput: "index.android.js.map",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>command;
-        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
-            os.tmpdir(),
-            "CodePush"
-          )} --bundle-output ${path.join(
-            os.tmpdir(),
-            "CodePush",
-            bundleName
-          )} --dev false --entry-file index.android.js --platform android --sourcemap-output index.android.js.map`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
+    runReleaseReact(releaseReactCommand({ platform: "android", appStoreVersion: ">=1.0.0 <1.0.5" }))
+      .then(({ metadata }) => {
+        assert.equal(metadata.appVersion, ">=1.0.0 <1.0.5");
         done();
       })
       .done();
   });
 
   it("release-react applies arguments to node binary provided via the CODE_PUSH_NODE_ARGS env var", (done: Mocha.Done): void => {
-    var bundleName = "bundle.js";
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      bundleName: bundleName,
-      deploymentName: "Staging",
-      description: "Test default entry file",
-      mandatory: false,
-      rollout: null,
-      platform: "ios",
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    var _CODE_PUSH_NODE_ARGS: string = process.env.CODE_PUSH_NODE_ARGS;
+    const originalNodeArgs = process.env.CODE_PUSH_NODE_ARGS;
     process.env.CODE_PUSH_NODE_ARGS = "  --foo=bar    --baz  ";
 
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>command;
-        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.appStoreVersion = "1.2.3";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `--foo=bar --baz ${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
-            os.tmpdir(),
-            "CodePush"
-          )} --bundle-output ${path.join(os.tmpdir(), "CodePush", bundleName)} --dev false --entry-file index.ios.js --platform ios`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
-
-        process.env.CODE_PUSH_NODE_ARGS = _CODE_PUSH_NODE_ARGS;
-
+    runReleaseReact(releaseReactCommand())
+      .then(({ bundlerArgs }) => {
+        assert.deepEqual(bundlerArgs.slice(0, 2), ["--foo=bar", "--baz"]);
         done();
+      })
+      .finally(() => {
+        if (originalNodeArgs === undefined) delete process.env.CODE_PUSH_NODE_ARGS;
+        else process.env.CODE_PUSH_NODE_ARGS = originalNodeArgs;
       })
       .done();
   });
 
   it("release-react applies extraBundlerOptions to bundler command", (done: Mocha.Done): void => {
-    var bundleName = "bundle.js";
-    var command: cli.IReleaseReactCommand = {
-      type: cli.CommandType.releaseReact,
-      appName: "a",
-      appStoreVersion: null,
-      bundleName: bundleName,
-      deploymentName: "Staging",
-      description: "Test default entry file",
-      mandatory: false,
-      rollout: null,
-      platform: "ios",
-      extraBundlerOptions: ["--foo=bar", "--baz"],
-    };
-
-    ensureInTestAppDirectory();
-
-    var release: sinon.SinonSpy = sandbox.stub(cmdexec, "release");
-
-    cmdexec
-      .execute(command)
-      .then(() => {
-        var releaseCommand: cli.IReleaseCommand = <any>command;
-        releaseCommand.package = path.join(os.tmpdir(), "CodePush");
-        releaseCommand.appStoreVersion = "1.2.3";
-
-        sinon.assert.calledOnce(spawn);
-        var spawnCommand: string = spawn.args[0][0];
-        var spawnCommandArgs: string = spawn.args[0][1].join(" ");
-        assert.equal(spawnCommand, "node");
-        assert.equal(
-          spawnCommandArgs,
-          `${path.join("node_modules", "react-native", "local-cli", "cli.js")} bundle --assets-dest ${path.join(
-            os.tmpdir(),
-            "CodePush"
-          )} --bundle-output ${path.join(os.tmpdir(), "CodePush", bundleName)} --dev false --entry-file index.ios.js --platform ios --foo=bar --baz`
-        );
-        assertJsonDescribesObject(JSON.stringify(release.args[0][0], /*replacer=*/ null, /*spacing=*/ 2), releaseCommand);
-
+    runReleaseReact(releaseReactCommand({ extraBundlerOptions: ["--foo=bar", "--baz"] }))
+      .then(({ bundlerArgs }) => {
+        assert.deepEqual(bundlerArgs.slice(-2), ["--foo=bar", "--baz"]);
         done();
       })
       .done();

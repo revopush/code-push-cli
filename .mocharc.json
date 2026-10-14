@@ -1,0 +1,4 @@
+{
+  "require": "bin/test/setup.js",
+  "spec": "bin/test/**/*.js"
+}
