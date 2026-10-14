@@ -36,10 +36,10 @@ async function execute(command: cli.ICommand): Promise<void> {
   await cmdexec.execute(command);
 }
 
-function argValue(args: unknown[], flag: string): string {
+function argValue(args: string[], flag: string): string {
   const index = args.indexOf(flag);
   assert.notEqual(index, -1, `Expected the "${flag}" argument`);
-  return String(args[index + 1]);
+  return args[index + 1];
 }
 
 function patchCommand(overrides: Partial<cli.IPatchCommand> = {}): cli.IPatchCommand {
@@ -580,7 +580,7 @@ describe("CLI", () => {
     const executeInTestApp = (command: cli.ICommand) => inDirectory(TEST_APP_DIRECTORY, () => execute(command));
 
     /** Releases from the test app, returning the bundler arguments and the uploaded release metadata */
-    async function releaseFromTestApp(command: cli.IReleaseReactCommand): Promise<{ bundlerArgs: unknown[]; metadata: any }> {
+    async function releaseFromTestApp(command: cli.IReleaseReactCommand): Promise<{ bundlerArgs: string[]; metadata: any }> {
       const sdkRelease = sinon.stub(cmdexec.sdk, "release").resolves();
 
       await executeInTestApp(command);
@@ -588,7 +588,12 @@ describe("CLI", () => {
       sinon.assert.calledOnce(spawn);
       assert.equal(spawn.args[0][0], "node");
       sinon.assert.calledOnce(sdkRelease);
-      return { bundlerArgs: spawn.args[0][1], metadata: sdkRelease.args[0][3] };
+      const bundlerArgs: unknown[] = spawn.args[0][1];
+      assert.ok(
+        bundlerArgs.every((arg) => typeof arg === "string"),
+        `Bundler arguments must be strings: ${JSON.stringify(bundlerArgs)}`
+      );
+      return { bundlerArgs: <string[]>bundlerArgs, metadata: sdkRelease.args[0][3] };
     }
 
     describe("outside a React Native project", () => {

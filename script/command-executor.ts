@@ -1152,12 +1152,12 @@ export const runExpoExportEmbedCommand = async ({
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
 
   if (typeof envNodeArgs !== "undefined") {
-    Array.prototype.push.apply(expoBundleArgs, envNodeArgs.trim().split(/\s+/));
+    expoBundleArgs.push(...envNodeArgs.trim().split(/\s+/));
   }
 
   const expoCliPath = getExpoCliPath();
 
-  Array.prototype.push.apply(expoBundleArgs, [
+  expoBundleArgs.push(
     expoCliPath,
     "export:embed",
     "--assets-dest",
@@ -1165,13 +1165,13 @@ export const runExpoExportEmbedCommand = async ({
     "--bundle-output",
     path.join(outputFolder, bundleName),
     "--dev",
-    development,
+    String(development),
     "--platform",
     platform,
     "--minify",
-    false,
-    "--reset-cache",
-  ]);
+    "false",
+    "--reset-cache"
+  );
 
   expoBundleArgs.push("--sourcemap-output", packagerSourceMap);
 
@@ -1817,14 +1817,14 @@ export const runReactNativeBundleCommand = async (
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
 
   if (typeof envNodeArgs !== "undefined") {
-    Array.prototype.push.apply(reactNativeBundleArgs, envNodeArgs.trim().split(/\s+/));
+    reactNativeBundleArgs.push(...envNodeArgs.trim().split(/\s+/));
   }
 
   const reactNativePackagePath = getReactNativePackagePath();
   const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
   const cliPath = fs.existsSync(oldCliPath) ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
 
-  Array.prototype.push.apply(reactNativeBundleArgs, [
+  reactNativeBundleArgs.push(
     cliPath,
     "bundle",
     "--assets-dest",
@@ -1832,18 +1832,17 @@ export const runReactNativeBundleCommand = async (
     "--bundle-output",
     path.join(outputFolder, bundleName),
     "--dev",
-    development,
+    String(development),
     "--entry-file",
     entryFile,
     "--platform",
     platform,
-    "--reset-cache",
-  ]);
+    "--reset-cache"
+  );
 
   reactNativeBundleArgs.push("--sourcemap-output", packagerSourceMap);
 
-  const minifyValue = getMinifyParams(platform, isHermes);
-  Array.prototype.push.apply(reactNativeBundleArgs, minifyValue);
+  reactNativeBundleArgs.push(...getMinifyParams(platform, isHermes));
 
   if (extraBundlerOptions.length > 0) {
     reactNativeBundleArgs.push(...extraBundlerOptions);
