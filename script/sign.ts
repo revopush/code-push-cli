@@ -14,24 +14,20 @@ interface CodeSigningClaims {
 
 export default async function sign(privateKeyPath: string, updateContentsPath: string): Promise<void> {
   if (!privateKeyPath) {
-    return Promise.resolve<void>(null);
+    return;
   }
 
   let privateKey: Buffer;
 
   try {
     privateKey = await fs.readFile(privateKeyPath);
-  } catch (err) {
-    return Promise.reject(new Error(`The path specified for the signing key ("${privateKeyPath}") was not valid.`));
+  } catch {
+    throw new Error(`The path specified for the signing key ("${privateKeyPath}") was not valid.`);
   }
 
   // If releasing a single file, copy the file to a temporary 'CodePush' directory in which to publish the release
-  try {
-    if (!isDirectory(updateContentsPath)) {
-      updateContentsPath = copyFileToTmpDir(updateContentsPath);
-    }
-  } catch (error) {
-    return Promise.reject(error);
+  if (!isDirectory(updateContentsPath)) {
+    updateContentsPath = copyFileToTmpDir(updateContentsPath);
   }
 
   const signatureFilePath: string = path.join(updateContentsPath, METADATA_FILE_NAME);
@@ -42,11 +38,9 @@ export default async function sign(privateKeyPath: string, updateContentsPath: s
     if (err.code === "ENOENT") {
       prevSignatureExists = false;
     } else {
-      return Promise.reject<void>(
-        new Error(
-          `Could not delete previous release signature at ${signatureFilePath}.
+      throw new Error(
+        `Could not delete previous release signature at ${signatureFilePath}.
                 Please, check your access rights.`
-        )
       );
     }
   }
@@ -62,19 +56,13 @@ export default async function sign(privateKeyPath: string, updateContentsPath: s
     contentHash: hash,
   };
 
-  return new Promise<void>((resolve, reject) => {
-    jwt.sign(claims, privateKey, { algorithm: "RS256" }, async (err: Error, signedJwt: string) => {
-      if (err) {
-        reject(new Error("The specified signing key file was not valid"));
-      }
+  let signedJwt: string;
+  try {
+    signedJwt = jwt.sign(claims, privateKey, { algorithm: "RS256" });
+  } catch {
+    throw new Error("The specified signing key file was not valid");
+  }
 
-      try {
-        await fs.writeFile(signatureFilePath, signedJwt);
-        console.log(`Generated a release signature and wrote it to ${signatureFilePath}`);
-        resolve(null);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  });
+  await fs.writeFile(signatureFilePath, signedJwt);
+  console.log(`Generated a release signature and wrote it to ${signatureFilePath}`);
 }

@@ -16,6 +16,7 @@ import sign from "./sign";
 const ApkReader = require("@devicefarmer/adbkit-apkreader");
 import {
   AccessKey,
+  Account,
   App,
   CodePushError,
   CollaboratorMap,
@@ -131,14 +132,13 @@ export const confirm = (message: string = "Are you sure?"): Promise<boolean> => 
   });
 };
 
-function accessKeyAdd(command: cli.IAccessKeyAddCommand): Promise<void> {
-  return sdk.addAccessKey(command.name, command.ttl).then((accessKey: AccessKey) => {
-    log(`Successfully created the "${command.name}" access key: ${accessKey.key}`);
-    log("Make sure to save this key value somewhere safe, since you won't be able to view it from the CLI again!");
-  });
+async function accessKeyAdd(command: cli.IAccessKeyAddCommand): Promise<void> {
+  const accessKey: AccessKey = await sdk.addAccessKey(command.name, command.ttl);
+  log(`Successfully created the "${command.name}" access key: ${accessKey.key}`);
+  log("Make sure to save this key value somewhere safe, since you won't be able to view it from the CLI again!");
 }
 
-function accessKeyPatch(command: cli.IAccessKeyPatchCommand): Promise<void> {
+async function accessKeyPatch(command: cli.IAccessKeyPatchCommand): Promise<void> {
   const willUpdateName: boolean = isCommandOptionSpecified(command.newName) && command.oldName !== command.newName;
   const willUpdateTtl: boolean = isCommandOptionSpecified(command.ttl);
 
@@ -146,135 +146,115 @@ function accessKeyPatch(command: cli.IAccessKeyPatchCommand): Promise<void> {
     throw new Error("A new name and/or TTL must be provided.");
   }
 
-  return sdk.patchAccessKey(command.oldName, command.newName, command.ttl).then((accessKey: AccessKey) => {
-    let logMessage: string = "Successfully ";
+  const accessKey: AccessKey = await sdk.patchAccessKey(command.oldName, command.newName, command.ttl);
+  let logMessage: string = "Successfully ";
+  if (willUpdateName) {
+    logMessage += `renamed the access key "${command.oldName}" to "${command.newName}"`;
+  }
+
+  if (willUpdateTtl) {
+    const expirationDate = moment(accessKey.expires).format("LLLL");
     if (willUpdateName) {
-      logMessage += `renamed the access key "${command.oldName}" to "${command.newName}"`;
+      logMessage += ` and changed its expiration date to ${expirationDate}`;
+    } else {
+      logMessage += `changed the expiration date of the "${command.oldName}" access key to ${expirationDate}`;
     }
+  }
 
-    if (willUpdateTtl) {
-      const expirationDate = moment(accessKey.expires).format("LLLL");
-      if (willUpdateName) {
-        logMessage += ` and changed its expiration date to ${expirationDate}`;
-      } else {
-        logMessage += `changed the expiration date of the "${command.oldName}" access key to ${expirationDate}`;
-      }
-    }
-
-    log(`${logMessage}.`);
-  });
+  log(`${logMessage}.`);
 }
 
-function accessKeyList(command: cli.IAccessKeyListCommand): Promise<void> {
+async function accessKeyList(command: cli.IAccessKeyListCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
 
-  return sdk.getAccessKeys().then((accessKeys: AccessKey[]): void => {
-    printAccessKeys(command.format, accessKeys);
-  });
+  const accessKeys: AccessKey[] = await sdk.getAccessKeys();
+  printAccessKeys(command.format, accessKeys);
 }
 
-function accessKeyRemove(command: cli.IAccessKeyRemoveCommand): Promise<void> {
-  return confirm().then((wasConfirmed: boolean): Promise<void> => {
-    if (wasConfirmed) {
-      return sdk.removeAccessKey(command.accessKey).then((): void => {
-        log(`Successfully removed the "${command.accessKey}" access key.`);
-      });
-    }
+async function accessKeyRemove(command: cli.IAccessKeyRemoveCommand): Promise<void> {
+  if (await confirm()) {
+    await sdk.removeAccessKey(command.accessKey);
+    log(`Successfully removed the "${command.accessKey}" access key.`);
+    return;
+  }
 
-    log("Access key removal cancelled.");
-  });
+  log("Access key removal cancelled.");
 }
 
-function appAdd(command: cli.IAppAddCommand): Promise<void> {
-  return sdk.addApp(command.appName).then((app: App): Promise<void> => {
-    log('Successfully added the "' + command.appName + '" app, along with the following default deployments:');
-    const deploymentListCommand: cli.IDeploymentListCommand = {
-      type: cli.CommandType.deploymentList,
-      appName: app.name,
-      format: "table",
-      displayKeys: true,
-    };
-    return deploymentList(deploymentListCommand, /*showPackage=*/ false);
-  });
+async function appAdd(command: cli.IAppAddCommand): Promise<void> {
+  const app: App = await sdk.addApp(command.appName);
+  log('Successfully added the "' + command.appName + '" app, along with the following default deployments:');
+  const deploymentListCommand: cli.IDeploymentListCommand = {
+    type: cli.CommandType.deploymentList,
+    appName: app.name,
+    format: "table",
+    displayKeys: true,
+  };
+  await deploymentList(deploymentListCommand, /*showPackage=*/ false);
 }
 
-function appList(command: cli.IAppListCommand): Promise<void> {
+async function appList(command: cli.IAppListCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
-  return sdk.getApps().then((retrievedApps: App[]): void => {
-    printAppList(command.format, retrievedApps);
-  });
+  const retrievedApps: App[] = await sdk.getApps();
+  printAppList(command.format, retrievedApps);
 }
 
-function appRemove(command: cli.IAppRemoveCommand): Promise<void> {
-  return confirm("Are you sure you want to remove this app? Note that its deployment keys will be PERMANENTLY unrecoverable.").then(
-    (wasConfirmed: boolean): Promise<void> => {
-      if (wasConfirmed) {
-        return sdk.removeApp(command.appName).then((): void => {
-          log('Successfully removed the "' + command.appName + '" app.');
-        });
-      }
+async function appRemove(command: cli.IAppRemoveCommand): Promise<void> {
+  if (await confirm("Are you sure you want to remove this app? Note that its deployment keys will be PERMANENTLY unrecoverable.")) {
+    await sdk.removeApp(command.appName);
+    log('Successfully removed the "' + command.appName + '" app.');
+    return;
+  }
 
-      log("App removal cancelled.");
-    }
-  );
+  log("App removal cancelled.");
 }
 
-function appRename(command: cli.IAppRenameCommand): Promise<void> {
-  return sdk.renameApp(command.currentAppName, command.newAppName).then((): void => {
-    log('Successfully renamed the "' + command.currentAppName + '" app to "' + command.newAppName + '".');
-  });
+async function appRename(command: cli.IAppRenameCommand): Promise<void> {
+  await sdk.renameApp(command.currentAppName, command.newAppName);
+  log('Successfully renamed the "' + command.currentAppName + '" app to "' + command.newAppName + '".');
 }
 
-export const createEmptyTempReleaseFolder = (folderPath: string) => {
-  return deleteFolder(folderPath).then(() => {
-    fs.mkdirSync(folderPath);
-  });
+export const createEmptyTempReleaseFolder = async (folderPath: string): Promise<void> => {
+  await deleteFolder(folderPath);
+  fs.mkdirSync(folderPath);
 };
 
-function appTransfer(command: cli.IAppTransferCommand): Promise<void> {
+async function appTransfer(command: cli.IAppTransferCommand): Promise<void> {
   throwForInvalidEmail(command.email);
 
-  return confirm().then((wasConfirmed: boolean): Promise<void> => {
-    if (wasConfirmed) {
-      return sdk.transferApp(command.appName, command.email).then((): void => {
-        log(
-          'Successfully transferred the ownership of app "' + command.appName + '" to the account with email "' + command.email + '".'
-        );
-      });
-    }
+  if (await confirm()) {
+    await sdk.transferApp(command.appName, command.email);
+    log('Successfully transferred the ownership of app "' + command.appName + '" to the account with email "' + command.email + '".');
+    return;
+  }
 
-    log("App transfer cancelled.");
-  });
+  log("App transfer cancelled.");
 }
 
-function addCollaborator(command: cli.ICollaboratorAddCommand): Promise<void> {
+async function addCollaborator(command: cli.ICollaboratorAddCommand): Promise<void> {
   throwForInvalidEmail(command.email);
 
-  return sdk.addCollaborator(command.appName, command.email).then((): void => {
-    log('Successfully added "' + command.email + '" as a collaborator to the app "' + command.appName + '".');
-  });
+  await sdk.addCollaborator(command.appName, command.email);
+  log('Successfully added "' + command.email + '" as a collaborator to the app "' + command.appName + '".');
 }
 
-function listCollaborators(command: cli.ICollaboratorListCommand): Promise<void> {
+async function listCollaborators(command: cli.ICollaboratorListCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
 
-  return sdk.getCollaborators(command.appName).then((retrievedCollaborators: CollaboratorMap): void => {
-    printCollaboratorsList(command.format, retrievedCollaborators);
-  });
+  const retrievedCollaborators: CollaboratorMap = await sdk.getCollaborators(command.appName);
+  printCollaboratorsList(command.format, retrievedCollaborators);
 }
 
-function removeCollaborator(command: cli.ICollaboratorRemoveCommand): Promise<void> {
+async function removeCollaborator(command: cli.ICollaboratorRemoveCommand): Promise<void> {
   throwForInvalidEmail(command.email);
 
-  return confirm().then((wasConfirmed: boolean): Promise<void> => {
-    if (wasConfirmed) {
-      return sdk.removeCollaborator(command.appName, command.email).then((): void => {
-        log('Successfully removed "' + command.email + '" as a collaborator from the app "' + command.appName + '".');
-      });
-    }
+  if (await confirm()) {
+    await sdk.removeCollaborator(command.appName, command.email);
+    log('Successfully removed "' + command.email + '" as a collaborator from the app "' + command.appName + '".');
+    return;
+  }
 
-    log("App collaborator removal cancelled.");
-  });
+  log("App collaborator removal cancelled.");
 }
 
 function deleteConnectionInfoCache(printMessage: boolean = true): void {
@@ -299,127 +279,115 @@ async function deleteReactTempFolders(): Promise<void> {
   await Promise.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
 }
 
-function deploymentAdd(command: cli.IDeploymentAddCommand): Promise<void> {
-  return sdk.addDeployment(command.appName, command.deploymentName, command.key).then((deployment: Deployment): void => {
+async function deploymentAdd(command: cli.IDeploymentAddCommand): Promise<void> {
+  const deployment: Deployment = await sdk.addDeployment(command.appName, command.deploymentName, command.key);
+  log(
+    'Successfully added the "' +
+      command.deploymentName +
+      '" deployment with key "' +
+      deployment.key +
+      '" to the "' +
+      command.appName +
+      '" app.'
+  );
+}
+
+async function deploymentHistoryClear(command: cli.IDeploymentHistoryClearCommand): Promise<void> {
+  if (await confirm()) {
+    await sdk.clearDeploymentHistory(command.appName, command.deploymentName);
     log(
-      'Successfully added the "' +
+      'Successfully cleared the release history associated with the "' +
         command.deploymentName +
-        '" deployment with key "' +
-        deployment.key +
-        '" to the "' +
+        '" deployment from the "' +
         command.appName +
         '" app.'
     );
-  });
+    return;
+  }
+
+  log("Clear deployment cancelled.");
 }
 
-function deploymentHistoryClear(command: cli.IDeploymentHistoryClearCommand): Promise<void> {
-  return confirm().then((wasConfirmed: boolean): Promise<void> => {
-    if (wasConfirmed) {
-      return sdk.clearDeploymentHistory(command.appName, command.deploymentName).then((): void => {
-        log(
-          'Successfully cleared the release history associated with the "' +
-            command.deploymentName +
-            '" deployment from the "' +
-            command.appName +
-            '" app.'
-        );
-      });
-    }
-
-    log("Clear deployment cancelled.");
-  });
-}
-
-export const deploymentList = (command: cli.IDeploymentListCommand, showPackage: boolean = true): Promise<void> => {
+export const deploymentList = async (command: cli.IDeploymentListCommand, showPackage: boolean = true): Promise<void> => {
   throwForInvalidOutputFormat(command.format);
-  let deployments: Deployment[];
   const DEPLOYMENTS_MAX_LENGTH = 10; // do not take metrics if number of deployment higher than this
 
-  return sdk
-    .getDeployments(command.appName)
-    .then((retrievedDeployments: Deployment[]) => {
-      deployments = retrievedDeployments;
-      if (showPackage && deployments.length < DEPLOYMENTS_MAX_LENGTH) {
-        const metricsPromises: Promise<void>[] = deployments.map((deployment: Deployment) => {
-          if (deployment.package) {
-            return sdk.getDeploymentMetrics(command.appName, deployment.name).then((metrics: DeploymentMetrics): void => {
-              if (metrics[deployment.package.label]) {
-                const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
-                (<PackageWithMetrics>deployment.package).metrics = {
-                  active: metrics[deployment.package.label].active,
-                  downloaded: metrics[deployment.package.label].downloaded,
-                  failed: metrics[deployment.package.label].failed,
-                  installed: metrics[deployment.package.label].installed,
-                  totalActive: totalActive,
-                };
-              }
-            });
-          } else {
-            return Promise.resolve();
-          }
-        });
+  const deployments: Deployment[] = await sdk.getDeployments(command.appName);
+  if (showPackage && deployments.length < DEPLOYMENTS_MAX_LENGTH) {
+    await Promise.all(
+      deployments.map(async (deployment: Deployment): Promise<void> => {
+        if (!deployment.package) {
+          return;
+        }
 
-        return Promise.all(metricsPromises);
-      }
-    })
-    .then(() => {
-      printDeploymentList(command, deployments, showPackage);
-    });
+        const metrics: DeploymentMetrics = await sdk.getDeploymentMetrics(command.appName, deployment.name);
+        if (metrics[deployment.package.label]) {
+          const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
+          (<PackageWithMetrics>deployment.package).metrics = {
+            active: metrics[deployment.package.label].active,
+            downloaded: metrics[deployment.package.label].downloaded,
+            failed: metrics[deployment.package.label].failed,
+            installed: metrics[deployment.package.label].installed,
+            totalActive: totalActive,
+          };
+        }
+      })
+    );
+  }
+
+  printDeploymentList(command, deployments, showPackage);
 };
 
-function deploymentRemove(command: cli.IDeploymentRemoveCommand): Promise<void> {
-  const confirmation = command.isForce
-    ? Promise.resolve(true)
-    : confirm("Are you sure you want to remove this deployment? Note that its deployment key will be PERMANENTLY unrecoverable.");
+async function deploymentRemove(command: cli.IDeploymentRemoveCommand): Promise<void> {
+  const wasConfirmed: boolean =
+    command.isForce ||
+    (await confirm(
+      "Are you sure you want to remove this deployment? Note that its deployment key will be PERMANENTLY unrecoverable."
+    ));
 
-  return confirmation.then((wasConfirmed: boolean): Promise<void> => {
-    if (wasConfirmed) {
-      return sdk.removeDeployment(command.appName, command.deploymentName).then((): void => {
-        log('Successfully removed the "' + command.deploymentName + '" deployment from the "' + command.appName + '" app.');
-      });
-    }
+  if (wasConfirmed) {
+    await sdk.removeDeployment(command.appName, command.deploymentName);
+    log('Successfully removed the "' + command.deploymentName + '" deployment from the "' + command.appName + '" app.');
+    return;
+  }
 
-    log("Deployment removal cancelled.");
-  });
+  log("Deployment removal cancelled.");
 }
 
-function deploymentRename(command: cli.IDeploymentRenameCommand): Promise<void> {
-  return sdk.renameDeployment(command.appName, command.currentDeploymentName, command.newDeploymentName).then((): void => {
-    log(
-      'Successfully renamed the "' +
-        command.currentDeploymentName +
-        '" deployment to "' +
-        command.newDeploymentName +
-        '" for the "' +
-        command.appName +
-        '" app.'
-    );
-  });
+async function deploymentRename(command: cli.IDeploymentRenameCommand): Promise<void> {
+  await sdk.renameDeployment(command.appName, command.currentDeploymentName, command.newDeploymentName);
+  log(
+    'Successfully renamed the "' +
+      command.currentDeploymentName +
+      '" deployment to "' +
+      command.newDeploymentName +
+      '" for the "' +
+      command.appName +
+      '" app.'
+  );
 }
 
-function deploymentHistory(command: cli.IDeploymentHistoryCommand): Promise<void> {
+async function deploymentHistory(command: cli.IDeploymentHistoryCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
 
-  return Promise.all([
+  const [account, deploymentHistory, metrics] = await Promise.all([
     sdk.getAccountInfo(),
     sdk.getDeploymentHistory(command.appName, command.deploymentName),
     sdk.getDeploymentMetrics(command.appName, command.deploymentName),
-  ]).then(([account, deploymentHistory, metrics]): void => {
-    const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
-    deploymentHistory.forEach((packageObject: Package) => {
-      if (metrics[packageObject.label]) {
-        (<PackageWithMetrics>packageObject).metrics = {
-          active: metrics[packageObject.label].active,
-          downloaded: metrics[packageObject.label].downloaded,
-          failed: metrics[packageObject.label].failed,
-          installed: metrics[packageObject.label].installed,
-          totalActive: totalActive,
-        };
-      }
-    });
-    printDeploymentHistory(command, <Package[]>deploymentHistory, account.email);
+  ]);
+  const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
+  deploymentHistory.forEach((packageObject: Package) => {
+    if (metrics[packageObject.label]) {
+      (<PackageWithMetrics>packageObject).metrics = {
+        active: metrics[packageObject.label].active,
+        downloaded: metrics[packageObject.label].downloaded,
+        failed: metrics[packageObject.label].failed,
+        installed: metrics[packageObject.label].installed,
+        totalActive: totalActive,
+      };
+    }
   });
+  printDeploymentHistory(command, <Package[]>deploymentHistory, account.email);
 }
 
 function deserializeConnectionInfo(): ILoginConnectionInfo {
@@ -444,142 +412,138 @@ function deserializeConnectionInfo(): ILoginConnectionInfo {
   }
 }
 
-export function execute(command: cli.ICommand) {
+export async function execute(command: cli.ICommand): Promise<void> {
   connectionInfo = deserializeConnectionInfo();
 
-  return Promise.resolve().then(() => {
-    switch (command.type) {
-      // Must not be logged in
-      case cli.CommandType.login:
-      case cli.CommandType.register:
-        if (connectionInfo) {
-          throw new Error("You are already logged in from this machine.");
-        }
-        break;
+  switch (command.type) {
+    // Must not be logged in
+    case cli.CommandType.login:
+    case cli.CommandType.register:
+      if (connectionInfo) {
+        throw new Error("You are already logged in from this machine.");
+      }
+      break;
 
-      // It does not matter whether you are logged in or not
-      case cli.CommandType.link:
-        break;
+    // It does not matter whether you are logged in or not
+    case cli.CommandType.link:
+      break;
 
-      // Must be logged in
-      default:
-        if (!!sdk) break; // Used by unit tests to skip authentication
+    // Must be logged in
+    default:
+      if (!!sdk) break; // Used by unit tests to skip authentication
 
-        if (!connectionInfo) {
-          throw new Error(
-            "You are not currently logged in. Run the 'revopush login' command to authenticate with the CodePush server."
-          );
-        }
+      if (!connectionInfo) {
+        throw new Error("You are not currently logged in. Run the 'revopush login' command to authenticate with the CodePush server.");
+      }
 
-        sdk = getSdk(connectionInfo.accessKey, CLI_HEADERS, connectionInfo.customServerUrl);
-        break;
-    }
+      sdk = getSdk(connectionInfo.accessKey, CLI_HEADERS, connectionInfo.customServerUrl);
+      break;
+  }
 
-    switch (command.type) {
-      case cli.CommandType.accessKeyAdd:
-        return accessKeyAdd(<cli.IAccessKeyAddCommand>command);
+  switch (command.type) {
+    case cli.CommandType.accessKeyAdd:
+      return accessKeyAdd(<cli.IAccessKeyAddCommand>command);
 
-      case cli.CommandType.accessKeyPatch:
-        return accessKeyPatch(<cli.IAccessKeyPatchCommand>command);
+    case cli.CommandType.accessKeyPatch:
+      return accessKeyPatch(<cli.IAccessKeyPatchCommand>command);
 
-      case cli.CommandType.accessKeyList:
-        return accessKeyList(<cli.IAccessKeyListCommand>command);
+    case cli.CommandType.accessKeyList:
+      return accessKeyList(<cli.IAccessKeyListCommand>command);
 
-      case cli.CommandType.accessKeyRemove:
-        return accessKeyRemove(<cli.IAccessKeyRemoveCommand>command);
+    case cli.CommandType.accessKeyRemove:
+      return accessKeyRemove(<cli.IAccessKeyRemoveCommand>command);
 
-      case cli.CommandType.appAdd:
-        return appAdd(<cli.IAppAddCommand>command);
+    case cli.CommandType.appAdd:
+      return appAdd(<cli.IAppAddCommand>command);
 
-      case cli.CommandType.appList:
-        return appList(<cli.IAppListCommand>command);
+    case cli.CommandType.appList:
+      return appList(<cli.IAppListCommand>command);
 
-      case cli.CommandType.appRemove:
-        return appRemove(<cli.IAppRemoveCommand>command);
+    case cli.CommandType.appRemove:
+      return appRemove(<cli.IAppRemoveCommand>command);
 
-      case cli.CommandType.appRename:
-        return appRename(<cli.IAppRenameCommand>command);
+    case cli.CommandType.appRename:
+      return appRename(<cli.IAppRenameCommand>command);
 
-      case cli.CommandType.appTransfer:
-        return appTransfer(<cli.IAppTransferCommand>command);
+    case cli.CommandType.appTransfer:
+      return appTransfer(<cli.IAppTransferCommand>command);
 
-      case cli.CommandType.collaboratorAdd:
-        return addCollaborator(<cli.ICollaboratorAddCommand>command);
+    case cli.CommandType.collaboratorAdd:
+      return addCollaborator(<cli.ICollaboratorAddCommand>command);
 
-      case cli.CommandType.collaboratorList:
-        return listCollaborators(<cli.ICollaboratorListCommand>command);
+    case cli.CommandType.collaboratorList:
+      return listCollaborators(<cli.ICollaboratorListCommand>command);
 
-      case cli.CommandType.collaboratorRemove:
-        return removeCollaborator(<cli.ICollaboratorRemoveCommand>command);
+    case cli.CommandType.collaboratorRemove:
+      return removeCollaborator(<cli.ICollaboratorRemoveCommand>command);
 
-      case cli.CommandType.debug:
-        return debugCommand(<cli.IDebugCommand>command);
+    case cli.CommandType.debug:
+      return debugCommand(<cli.IDebugCommand>command);
 
-      case cli.CommandType.deploymentAdd:
-        return deploymentAdd(<cli.IDeploymentAddCommand>command);
+    case cli.CommandType.deploymentAdd:
+      return deploymentAdd(<cli.IDeploymentAddCommand>command);
 
-      case cli.CommandType.deploymentHistoryClear:
-        return deploymentHistoryClear(<cli.IDeploymentHistoryClearCommand>command);
+    case cli.CommandType.deploymentHistoryClear:
+      return deploymentHistoryClear(<cli.IDeploymentHistoryClearCommand>command);
 
-      case cli.CommandType.deploymentHistory:
-        return deploymentHistory(<cli.IDeploymentHistoryCommand>command);
+    case cli.CommandType.deploymentHistory:
+      return deploymentHistory(<cli.IDeploymentHistoryCommand>command);
 
-      case cli.CommandType.deploymentList:
-        return deploymentList(<cli.IDeploymentListCommand>command);
+    case cli.CommandType.deploymentList:
+      return deploymentList(<cli.IDeploymentListCommand>command);
 
-      case cli.CommandType.deploymentRemove:
-        return deploymentRemove(<cli.IDeploymentRemoveCommand>command);
+    case cli.CommandType.deploymentRemove:
+      return deploymentRemove(<cli.IDeploymentRemoveCommand>command);
 
-      case cli.CommandType.deploymentRename:
-        return deploymentRename(<cli.IDeploymentRenameCommand>command);
+    case cli.CommandType.deploymentRename:
+      return deploymentRename(<cli.IDeploymentRenameCommand>command);
 
-      case cli.CommandType.link:
-        return link(<cli.ILinkCommand>command);
+    case cli.CommandType.link:
+      return link(<cli.ILinkCommand>command);
 
-      case cli.CommandType.login:
-        return login(<cli.ILoginCommand>command);
+    case cli.CommandType.login:
+      return login(<cli.ILoginCommand>command);
 
-      case cli.CommandType.logout:
-        return logout(command);
+    case cli.CommandType.logout:
+      return logout(command);
 
-      case cli.CommandType.patch:
-        return patch(<cli.IPatchCommand>command);
+    case cli.CommandType.patch:
+      return patch(<cli.IPatchCommand>command);
 
-      case cli.CommandType.promote:
-        return promote(<cli.IPromoteCommand>command);
+    case cli.CommandType.promote:
+      return promote(<cli.IPromoteCommand>command);
 
-      case cli.CommandType.register:
-        return register(<cli.IRegisterCommand>command);
+    case cli.CommandType.register:
+      return register(<cli.IRegisterCommand>command);
 
-      case cli.CommandType.release:
-        return release(<cli.IReleaseCommand>command);
+    case cli.CommandType.release:
+      return release(<cli.IReleaseCommand>command);
 
-      case cli.CommandType.releaseReact:
-        return releaseReact(<cli.IReleaseReactCommand>command);
+    case cli.CommandType.releaseReact:
+      return releaseReact(<cli.IReleaseReactCommand>command);
 
-      case cli.CommandType.releaseExpo:
-        return releaseExpo(<cli.IReleaseReactCommand>command);
+    case cli.CommandType.releaseExpo:
+      return releaseExpo(<cli.IReleaseReactCommand>command);
 
-      case cli.CommandType.releaseNative:
-        return releaseNative(<cli.IReleaseNativeCommand>command);
+    case cli.CommandType.releaseNative:
+      return releaseNative(<cli.IReleaseNativeCommand>command);
 
-      case cli.CommandType.rollback:
-        return rollback(<cli.IRollbackCommand>command);
+    case cli.CommandType.rollback:
+      return rollback(<cli.IRollbackCommand>command);
 
-      case cli.CommandType.sessionList:
-        return sessionList(<cli.ISessionListCommand>command);
+    case cli.CommandType.sessionList:
+      return sessionList(<cli.ISessionListCommand>command);
 
-      case cli.CommandType.sessionRemove:
-        return sessionRemove(<cli.ISessionRemoveCommand>command);
+    case cli.CommandType.sessionRemove:
+      return sessionRemove(<cli.ISessionRemoveCommand>command);
 
-      case cli.CommandType.whoami:
-        return whoami(command);
+    case cli.CommandType.whoami:
+      return whoami(command);
 
-      default:
-        // We should never see this message as invalid commands should be caught by the argument parser.
-        throw new Error("Invalid command:  " + JSON.stringify(command));
-    }
-  });
+    default:
+      // We should never see this message as invalid commands should be caught by the argument parser.
+      throw new Error("Invalid command:  " + JSON.stringify(command));
+  }
 }
 
 function getTotalActiveFromDeploymentMetrics(metrics: DeploymentMetrics): number {
@@ -599,66 +563,57 @@ function initiateExternalAuthenticationAsync(action: string, serverUrl?: string)
   opener(url);
 }
 
-function link(command: cli.ILinkCommand): Promise<void> {
+async function link(command: cli.ILinkCommand): Promise<void> {
   initiateExternalAuthenticationAsync("link", command.serverUrl);
-  return Promise.resolve();
 }
 
-function login(command: cli.ILoginCommand): Promise<void> {
-  // Check if one of the flags were provided.
+async function login(command: cli.ILoginCommand): Promise<void> {
   if (command.accessKey) {
     sdk = getSdk(command.accessKey, CLI_HEADERS, command.apiServerUrl);
-    return sdk.isAuthenticated().then((isAuthenticated: boolean): void => {
-      if (isAuthenticated) {
-        serializeConnectionInfo(command.accessKey, /*preserveAccessKeyOnLogout*/ true, command.apiServerUrl);
-      } else {
-        throw new Error("Invalid access key.");
-      }
-    });
+    if (await sdk.isAuthenticated()) {
+      serializeConnectionInfo(command.accessKey, /*preserveAccessKeyOnLogout*/ true, command.apiServerUrl);
+    } else {
+      throw new Error("Invalid access key.");
+    }
   } else {
-    return loginWithExternalAuthentication("login", command.apiServerUrl, command.appServerUrl);
+    await loginWithExternalAuthentication("login", command.apiServerUrl, command.appServerUrl);
   }
 }
 
-function loginWithExternalAuthentication(action: string, apiServerUrl?: string, appServerUrl?: string): Promise<void> {
+async function loginWithExternalAuthentication(action: string, apiServerUrl?: string, appServerUrl?: string): Promise<void> {
   initiateExternalAuthenticationAsync(action, appServerUrl);
   log(""); // Insert newline
 
-  return requestAccessKey().then((accessKey: string): Promise<void> => {
-    if (accessKey === null) {
-      // The user has aborted the synchronous prompt (e.g.:  via [CTRL]+[C]).
-      return;
-    }
+  const accessKey: string = await requestAccessKey();
+  if (accessKey === null) {
+    // The user has aborted the synchronous prompt (e.g.:  via [CTRL]+[C]).
+    return;
+  }
 
-    sdk = getSdk(accessKey, CLI_HEADERS, apiServerUrl);
+  sdk = getSdk(accessKey, CLI_HEADERS, apiServerUrl);
 
-    return sdk.isAuthenticated().then((isAuthenticated: boolean): void => {
-      if (isAuthenticated) {
-        serializeConnectionInfo(accessKey, /*preserveAccessKeyOnLogout*/ false, apiServerUrl);
-      } else {
-        throw new Error("Invalid access key.");
-      }
-    });
-  });
+  if (await sdk.isAuthenticated()) {
+    serializeConnectionInfo(accessKey, /*preserveAccessKeyOnLogout*/ false, apiServerUrl);
+  } else {
+    throw new Error("Invalid access key.");
+  }
 }
 
-function logout(_command: cli.ICommand): Promise<void> {
-  return Promise.resolve()
-    .then((): Promise<void> => {
-      if (!connectionInfo.preserveAccessKeyOnLogout) {
-        const machineName: string = os.hostname();
-        return sdk.removeSession(machineName).catch((error: CodePushError) => {
-          // If we are not authenticated or the session doesn't exist anymore, just swallow the error instead of displaying it
-          if (error.statusCode !== AccountManager.ERROR_UNAUTHORIZED && error.statusCode !== AccountManager.ERROR_NOT_FOUND) {
-            throw error;
-          }
-        });
+async function logout(_command: cli.ICommand): Promise<void> {
+  if (!connectionInfo.preserveAccessKeyOnLogout) {
+    const machineName: string = os.hostname();
+    try {
+      await sdk.removeSession(machineName);
+    } catch (error) {
+      // If we are not authenticated or the session doesn't exist anymore, just swallow the error instead of displaying it
+      if (error.statusCode !== AccountManager.ERROR_UNAUTHORIZED && error.statusCode !== AccountManager.ERROR_NOT_FOUND) {
+        throw error;
       }
-    })
-    .then((): void => {
-      sdk = null;
-      deleteConnectionInfoCache();
-    });
+    }
+  }
+
+  sdk = null;
+  deleteConnectionInfoCache();
 }
 
 function formatDate(unixOffset: number): string {
@@ -878,7 +833,7 @@ interface ProjectVersionInfo {
   buildNumber?: string;
 }
 
-function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<ProjectVersionInfo> {
+async function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<ProjectVersionInfo> {
   log(chalk.cyan(`Detecting ${command.platform} app version:\n`));
 
   if (command.platform === "ios") {
@@ -937,13 +892,13 @@ function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, pro
       );
     }
 
-    return Promise.resolve({ appVersion: rawShortVersion, buildNumber: rawBundleVersion });
+    return { appVersion: rawShortVersion, buildNumber: rawBundleVersion };
   } else if (command.platform === "android") {
     return getAndroidVersionInfo(command.gradleFile);
   }
 }
 
-function getAppVersionFromXcodeProject(
+async function getAppVersionFromXcodeProject(
   command: cli.IReleaseReactCommand,
   projectName: string
 ): Promise<{ appVersion: string; buildNumber: string }> {
@@ -994,7 +949,7 @@ function getAppVersionFromXcodeProject(
     throw new Error(`The "CURRENT_PROJECT_VERSION" key doesn't exist in the "${resolvedPbxprojFile}" file.`);
   }
 
-  return Promise.resolve({ appVersion: marketingVersion, buildNumber: String(currentProjectVersion) });
+  return { appVersion: marketingVersion, buildNumber: String(currentProjectVersion) };
 }
 
 function printJson(object: any): void {
@@ -1051,11 +1006,11 @@ function printTable(columnNames: string[], readData: (dataSource: any[]) => void
   log(table.toString());
 }
 
-function register(command: cli.IRegisterCommand): Promise<void> {
+async function register(command: cli.IRegisterCommand): Promise<void> {
   return loginWithExternalAuthentication("register", command.serverUrl);
 }
 
-function promote(command: cli.IPromoteCommand): Promise<void> {
+async function promote(command: cli.IPromoteCommand): Promise<void> {
   const packageInfo: PackageInfo = {
     appVersion: command.appStoreVersion,
     description: command.description,
@@ -1065,25 +1020,25 @@ function promote(command: cli.IPromoteCommand): Promise<void> {
     rollout: command.rollout,
   };
 
-  return sdk
-    .promote(command.appName, command.sourceDeploymentName, command.destDeploymentName, packageInfo)
-    .then((): void => {
-      log(
-        "Successfully promoted " +
-          (command.label !== null ? '"' + command.label + '" of ' : "") +
-          'the "' +
-          command.sourceDeploymentName +
-          '" deployment of the "' +
-          command.appName +
-          '" app to the "' +
-          command.destDeploymentName +
-          '" deployment.'
-      );
-    })
-    .catch((err: CodePushError) => releaseErrorHandler(err, command));
+  try {
+    await sdk.promote(command.appName, command.sourceDeploymentName, command.destDeploymentName, packageInfo);
+    log(
+      "Successfully promoted " +
+        (command.label !== null ? '"' + command.label + '" of ' : "") +
+        'the "' +
+        command.sourceDeploymentName +
+        '" deployment of the "' +
+        command.appName +
+        '" app to the "' +
+        command.destDeploymentName +
+        '" deployment.'
+    );
+  } catch (err) {
+    releaseErrorHandler(err, command);
+  }
 }
 
-function patch(command: cli.IPatchCommand): Promise<void> {
+async function patch(command: cli.IPatchCommand): Promise<void> {
   const packageInfo: PackageInfo = {
     appVersion: command.appStoreVersion,
     description: command.description,
@@ -1102,16 +1057,15 @@ function patch(command: cli.IPatchCommand): Promise<void> {
     throw new Error("At least one property must be specified to patch a release.");
   }
 
-  return sdk.patchRelease(command.appName, command.deploymentName, command.label, packageInfo).then((): void => {
-    log(
-      `Successfully updated the "${command.label ? command.label : `latest`}" release of "${command.appName}" app's "${
-        command.deploymentName
-      }" deployment.`
-    );
-  });
+  await sdk.patchRelease(command.appName, command.deploymentName, command.label, packageInfo);
+  log(
+    `Successfully updated the "${command.label ? command.label : `latest`}" release of "${command.appName}" app's "${
+      command.deploymentName
+    }" deployment.`
+  );
 }
 
-export const release = (command: cli.IReleaseCommand): Promise<void> => {
+export const release = async (command: cli.IReleaseCommand): Promise<void> => {
   // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
   const updateMetadata: PackageInfo = {
     description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
@@ -1214,7 +1168,7 @@ interface ReactReleaseInputs {
 
 // Up-front validation for the React-style release flows (release-react / release-expo).
 // Throws on the first violation and returns the derived inputs. The semver-range check
-// lives in the chain since it needs the resolved app version.
+// is done by the caller since it needs the resolved app version.
 function validateReactReleaseCommand(
   command: cli.IReleaseReactCommand,
   options: { resolveEntryFile: boolean }
@@ -1348,7 +1302,7 @@ function printReleaseSizeWarnings(analysis: ReleaseSizeAnalysis | null, force: b
   }
 }
 
-export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> => {
+export const releaseExpo = async (command: cli.IReleaseReactCommand): Promise<void> => {
   const { platform, bundleName, projectName } = validateReactReleaseCommand(command, {
     resolveEntryFile: false,
   });
@@ -1364,72 +1318,54 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
   releaseCommand.package = outputFolder;
   releaseCommand.outputDir = outputFolder;
   releaseCommand.bundleName = bundleName;
-  let releaseSizeAnalysis: ReleaseSizeAnalysis | null = null;
+  await sdk.getDeployment(command.appName, command.deploymentName);
 
-  return sdk
-    .getDeployment(command.appName, command.deploymentName)
-    .then(async () => {
-      // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
-      // via --buildNumber. Auto-detection only applies to release-native where the binary
-      // build number is the natural targeting key.
-      const versionInfo: ProjectVersionInfo = command.appStoreVersion
-        ? { appVersion: command.appStoreVersion, buildNumber: command.buildNumber }
-        : { appVersion: (await getReactNativeProjectVersionInfo(command, projectName)).appVersion, buildNumber: command.buildNumber };
+  // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
+  // via --buildNumber. Auto-detection only applies to release-native where the binary
+  // build number is the natural targeting key.
+  const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
 
-      if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
-        await createEmptyTempReleaseFolder(sourcemapOutputFolder);
-      }
+  if (!command.sourcemapOutput) {
+    await createEmptyTempReleaseFolder(sourcemapOutputFolder);
+  }
 
-      return versionInfo;
-    })
-    .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
-      throwForInvalidSemverRange(appVersion);
-      releaseCommand.appStoreVersion = appVersion;
-      releaseCommand.buildNumber = buildNumber;
+  throwForInvalidSemverRange(appVersion);
+  releaseCommand.appStoreVersion = appVersion;
 
-      return createEmptyTempReleaseFolder(outputFolder);
-    })
-    .then(() => deleteReactTempFolders())
-    .then(async () => {
-      const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
-      await runExpoExportEmbedCommand(bundleOptions);
+  await createEmptyTempReleaseFolder(outputFolder);
+  await deleteReactTempFolders();
 
-      if (isHermes) {
-        await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
-      }
-    })
-    .then(() => {
-      releaseSizeAnalysis = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
-    })
-    .then(async () => {
-      if (command.privateKeyPath) {
-        log(chalk.cyan("\nSigning the bundle:\n"));
-        await sign(command.privateKeyPath, outputFolder);
-      } else {
-        console.log("private key was not provided");
-      }
-    })
-    .then(() => {
-      log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
-      return releaseReactNative(releaseCommand, () => printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false));
-    })
-    .then(async () => {
-      if (isTempOutputFolder) {
-        await deleteFolder(outputFolder);
-      }
+  const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
+  await runExpoExportEmbedCommand(bundleOptions);
 
-      if (!command.sourcemapOutput) {
-        await deleteFolder(sourcemapOutputFolder);
-      }
+  if (isHermes) {
+    await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
+  }
 
-      await deleteFolder(baseReleaseTmpFolder);
-    })
-    .catch(async (err: Error) => {
-      throw err;
-    });
+  const releaseSizeAnalysis: ReleaseSizeAnalysis | null = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
+
+  if (command.privateKeyPath) {
+    log(chalk.cyan("\nSigning the bundle:\n"));
+    await sign(command.privateKeyPath, outputFolder);
+  } else {
+    console.log("private key was not provided");
+  }
+
+  log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
+  await releaseReactNative(releaseCommand, () => printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false));
+
+  if (isTempOutputFolder) {
+    await deleteFolder(outputFolder);
+  }
+
+  if (!command.sourcemapOutput) {
+    await deleteFolder(sourcemapOutputFolder);
+  }
+
+  await deleteFolder(baseReleaseTmpFolder);
 };
 
-export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => {
+export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<void> => {
   const { platform, bundleName, entryFile, projectName } = validateReactReleaseCommand(command, {
     resolveEntryFile: true,
   });
@@ -1445,82 +1381,58 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
   releaseCommand.package = outputFolder;
   releaseCommand.outputDir = outputFolder;
   releaseCommand.bundleName = bundleName;
-  let releaseSizeAnalysis: ReleaseSizeAnalysis | null = null;
-
   // Check that the app and deployment exist before releasing an update.
   // This validation helps to save about 1 minute or more in case user has typed wrong app or deployment name.
-  return (
-    sdk
-      .getDeployment(command.appName, command.deploymentName)
-      .then(async () => {
-        // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
-        // via --buildNumber. Auto-detection only applies to release-native where the binary
-        // build number is the natural targeting key.
-        const versionInfo: ProjectVersionInfo = command.appStoreVersion
-          ? { appVersion: command.appStoreVersion, buildNumber: command.buildNumber }
-          : {
-              appVersion: (await getReactNativeProjectVersionInfo(command, projectName)).appVersion,
-              buildNumber: command.buildNumber,
-            };
+  await sdk.getDeployment(command.appName, command.deploymentName);
 
-        if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
-          // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
-          await createEmptyTempReleaseFolder(sourcemapOutputFolder);
-        }
+  // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
+  // via --buildNumber. Auto-detection only applies to release-native where the binary
+  // build number is the natural targeting key.
+  const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
 
-        return versionInfo;
-      })
-      .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
-        throwForInvalidSemverRange(appVersion);
-        releaseCommand.appStoreVersion = appVersion;
-        releaseCommand.buildNumber = buildNumber;
+  if (!command.sourcemapOutput) {
+    await createEmptyTempReleaseFolder(sourcemapOutputFolder);
+  }
 
-        return createEmptyTempReleaseFolder(outputFolder);
-      })
-      // This is needed to clear the react native bundler cache:
-      // https://github.com/facebook/react-native/issues/4289
-      .then(() => deleteReactTempFolders())
-      .then(async () => {
-        const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
-        await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
+  throwForInvalidSemverRange(appVersion);
+  releaseCommand.appStoreVersion = appVersion;
 
-        if (isHermes) {
-          await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
-        }
-      })
-      .then(() => {
-        releaseSizeAnalysis = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
-      })
-      .then(async () => {
-        if (command.privateKeyPath) {
-          log(chalk.cyan("\nSigning the bundle:\n"));
-          await sign(command.privateKeyPath, outputFolder);
-        } else {
-          console.log("private key was not provided");
-        }
-      })
-      .then(() => {
-        log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
-        return releaseReactNative(releaseCommand, () => printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false));
-      })
-      .then(async () => {
-        if (isTempOutputFolder) {
-          await deleteFolder(outputFolder);
-        }
+  await createEmptyTempReleaseFolder(outputFolder);
+  // This is needed to clear the react native bundler cache:
+  // https://github.com/facebook/react-native/issues/4289
+  await deleteReactTempFolders();
 
-        if (!command.sourcemapOutput) {
-          await deleteFolder(sourcemapOutputFolder);
-        }
+  const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
+  await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
 
-        await deleteFolder(baseReleaseTmpFolder);
-      })
-      .catch(async (err: Error) => {
-        throw err;
-      })
-  );
+  if (isHermes) {
+    await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
+  }
+
+  const releaseSizeAnalysis: ReleaseSizeAnalysis | null = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
+
+  if (command.privateKeyPath) {
+    log(chalk.cyan("\nSigning the bundle:\n"));
+    await sign(command.privateKeyPath, outputFolder);
+  } else {
+    console.log("private key was not provided");
+  }
+
+  log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
+  await releaseReactNative(releaseCommand, () => printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false));
+
+  if (isTempOutputFolder) {
+    await deleteFolder(outputFolder);
+  }
+
+  if (!command.sourcemapOutput) {
+    await deleteFolder(sourcemapOutputFolder);
+  }
+
+  await deleteFolder(baseReleaseTmpFolder);
 };
 
-export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void> => {
+export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise<void> => {
   const platform: string = command.platform.toLowerCase();
   let bundleName: string = command.bundleName;
   const targetBinaryPath: string = command.targetBinary;
@@ -1543,95 +1455,87 @@ export const releaseNative = (command: cli.IReleaseNativeCommand): Promise<void>
     throw new Error("For Android platform, target binary must be an .apk or .aab file.");
   }
 
-  return sdk
-    .getDeployment(command.appName, command.deploymentName)
-    .then(async () => {
-      try {
-        await createEmptyTempReleaseFolder(outputFolder);
-        await createEmptyTempReleaseFolder(extractFolder);
+  await sdk.getDeployment(command.appName, command.deploymentName);
 
-        if (!bundleName) {
-          bundleName = platform === "ios" ? "main.jsbundle" : `index.android.bundle`;
-        }
-        let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
+  try {
+    await createEmptyTempReleaseFolder(outputFolder);
+    await createEmptyTempReleaseFolder(extractFolder);
 
-        if (platform === "ios") {
-          log(chalk.cyan(`\nReading IPA file:\n`));
-          const metadataZip = await extractMetadataFromIOS(targetBinaryPath, outputFolder);
-          const buildVersion = await getIosVersion(targetBinaryPath);
-          releaseCommandPartial = {
-            package: metadataZip,
-            appStoreVersion: buildVersion?.version,
-            buildNumber: buildVersion?.build,
-          };
-        } else {
-          if (targetBinaryPathNormalised.endsWith(".apk")) {
-            log(chalk.cyan(`\nExtracting APK/ARR file:\n`));
-            await extractArchive(targetBinaryPath, extractFolder);
+    if (!bundleName) {
+      bundleName = platform === "ios" ? "main.jsbundle" : `index.android.bundle`;
+    }
+    let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
 
-            const reader = await ApkReader.open(targetBinaryPath);
-            const { versionName: appStoreVersion, versionCode } = await reader.readManifest();
-            const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
-            releaseCommandPartial = {
-              package: metadataZip,
-              appStoreVersion,
-              buildNumber: versionCode?.toString(),
-            };
-          } else if (targetBinaryPathNormalised.endsWith(".aab")) {
-            log(chalk.cyan(`\nExtracting AAB file:\n`));
-            await extractArchive(targetBinaryPath, extractFolder);
-            const { versionName: appStoreVersion, versionCode } = await parseAabManifest(targetBinaryPath);
+    if (platform === "ios") {
+      log(chalk.cyan(`\nReading IPA file:\n`));
+      const metadataZip = await extractMetadataFromIOS(targetBinaryPath, outputFolder);
+      const buildVersion = await getIosVersion(targetBinaryPath);
+      releaseCommandPartial = {
+        package: metadataZip,
+        appStoreVersion: buildVersion?.version,
+        buildNumber: buildVersion?.build,
+      };
+    } else {
+      if (targetBinaryPathNormalised.endsWith(".apk")) {
+        log(chalk.cyan(`\nExtracting APK/ARR file:\n`));
+        await extractArchive(targetBinaryPath, extractFolder);
 
-            const metadataZip = await extractMetadataFromAndroid(`${extractFolder}/base`, outputFolder); // base folder is nested in AAB
-            releaseCommandPartial = {
-              package: metadataZip,
-              appStoreVersion,
-              buildNumber: versionCode?.toString(),
-            };
-          } else {
-            throw new Error("For Android platform, target binary must be an .apk or .aab file.");
-          }
-        }
-
-        const { package: metadataZip, appStoreVersion, buildNumber: detectedBuildNumber } = releaseCommandPartial;
-        // Use the zip file as package for release
-        const releaseCommand: cli.IReleaseReactCommand = {
-          type: cli.CommandType.release,
-          appName: command.appName,
-          deploymentName: command.deploymentName,
-          appStoreVersion: command.appStoreVersion || appStoreVersion,
-          buildNumber: command.buildNumber || detectedBuildNumber,
-          description: command.description,
-          disabled: command.disabled,
-          mandatory: command.mandatory,
-          rollout: command.rollout,
-          initial: command.initial,
-          noDuplicateReleaseError: command.noDuplicateReleaseError,
-          platform: platform,
-          outputDir: outputFolder,
-          bundleName: bundleName,
+        const reader = await ApkReader.open(targetBinaryPath);
+        const { versionName: appStoreVersion, versionCode } = await reader.readManifest();
+        const metadataZip = await extractMetadataFromAndroid(extractFolder, outputFolder);
+        releaseCommandPartial = {
           package: metadataZip,
+          appStoreVersion,
+          buildNumber: versionCode?.toString(),
         };
+      } else if (targetBinaryPathNormalised.endsWith(".aab")) {
+        log(chalk.cyan(`\nExtracting AAB file:\n`));
+        await extractArchive(targetBinaryPath, extractFolder);
+        const { versionName: appStoreVersion, versionCode } = await parseAabManifest(targetBinaryPath);
 
-        return doNativeRelease(releaseCommand).then(async () => {
-          // Clean up zip file
-          if (fs.existsSync(releaseCommandPartial.package)) {
-            fs.unlinkSync(releaseCommandPartial.package);
-          }
-        });
-      } finally {
-        try {
-          await deleteFolder(extractFolder);
-          await deleteFolder(outputFolder);
-        } catch (ignored) {}
+        const metadataZip = await extractMetadataFromAndroid(`${extractFolder}/base`, outputFolder); // base folder is nested in AAB
+        releaseCommandPartial = {
+          package: metadataZip,
+          appStoreVersion,
+          buildNumber: versionCode?.toString(),
+        };
+      } else {
+        throw new Error("For Android platform, target binary must be an .apk or .aab file.");
       }
-    })
-    .catch(async (err: Error) => {
-      throw err;
-    });
+    }
+
+    const { package: metadataZip, appStoreVersion, buildNumber: detectedBuildNumber } = releaseCommandPartial;
+    const releaseCommand: cli.IReleaseReactCommand = {
+      type: cli.CommandType.release,
+      appName: command.appName,
+      deploymentName: command.deploymentName,
+      appStoreVersion: command.appStoreVersion || appStoreVersion,
+      buildNumber: command.buildNumber || detectedBuildNumber,
+      description: command.description,
+      disabled: command.disabled,
+      mandatory: command.mandatory,
+      rollout: command.rollout,
+      initial: command.initial,
+      noDuplicateReleaseError: command.noDuplicateReleaseError,
+      platform: platform,
+      outputDir: outputFolder,
+      bundleName: bundleName,
+      package: metadataZip,
+    };
+
+    await doNativeRelease(releaseCommand);
+    if (fs.existsSync(releaseCommandPartial.package)) {
+      fs.unlinkSync(releaseCommandPartial.package);
+    }
+  } finally {
+    try {
+      await deleteFolder(extractFolder);
+      await deleteFolder(outputFolder);
+    } catch (ignored) {}
+  }
 };
 
-const releaseReactNative = (command: cli.IReleaseReactCommand, onReleaseCompleted?: () => void): Promise<void> => {
+const releaseReactNative = async (command: cli.IReleaseReactCommand, onReleaseCompleted?: () => void): Promise<void> => {
   // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
   const updateMetadata: ReactNativePackageInfo = {
     description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
@@ -1648,7 +1552,7 @@ const releaseReactNative = (command: cli.IReleaseReactCommand, onReleaseComplete
   return doRelease(command, updateMetadata, onReleaseCompleted);
 };
 
-const doRelease = (
+const doRelease = async (
   command: cli.IReleaseCommand | cli.IReleaseReactCommand,
   updateMetadata: PackageInfo,
   onReleaseCompleted?: () => void
@@ -1680,34 +1584,32 @@ const doRelease = (
     lastTotalProgress = currentProgress;
   };
 
-  return sdk
-    .isAuthenticated(true)
-    .then((): Promise<void> => {
-      log("Release file path: " + filePath);
-      log("Metadata: " + JSON.stringify(updateMetadata));
-      return sdk.release(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
-    })
-    .then((): void => {
-      log(
-        'Successfully released an update containing the "' +
-          command.package +
-          '" ' +
-          (isSingleFilePackage ? "file" : "directory") +
-          ' to the "' +
-          command.deploymentName +
-          '" deployment of the "' +
-          command.appName +
-          '" app.'
-      );
+  try {
+    await sdk.isAuthenticated(true);
+    log("Release file path: " + filePath);
+    log("Metadata: " + JSON.stringify(updateMetadata));
+    await sdk.release(command.appName, command.deploymentName, filePath, updateMetadata, uploadProgress);
+    log(
+      'Successfully released an update containing the "' +
+        command.package +
+        '" ' +
+        (isSingleFilePackage ? "file" : "directory") +
+        ' to the "' +
+        command.deploymentName +
+        '" deployment of the "' +
+        command.appName +
+        '" app.'
+    );
 
-      if (onReleaseCompleted) {
-        onReleaseCompleted();
-      }
-    })
-    .catch((err: CodePushError) => releaseErrorHandler(err, command));
+    if (onReleaseCompleted) {
+      onReleaseCompleted();
+    }
+  } catch (err) {
+    releaseErrorHandler(err, command);
+  }
 };
 
-const doNativeRelease = (releaseCommand: cli.IReleaseReactCommand): Promise<void> => {
+const doNativeRelease = async (releaseCommand: cli.IReleaseReactCommand): Promise<void> => {
   throwForInvalidSemverRange(releaseCommand.appStoreVersion);
 
   const filePath: string = releaseCommand.package;
@@ -1738,40 +1640,33 @@ const doNativeRelease = (releaseCommand: cli.IReleaseReactCommand): Promise<void
     lastTotalProgress = currentProgress;
   };
 
-  return sdk
-    .isAuthenticated(true)
-    .then((): Promise<void> => {
-      return sdk.releaseNative(releaseCommand.appName, releaseCommand.deploymentName, filePath, updateMetadata, uploadProgress);
-    })
-    .then((): void => {
-      log(
-        'Successfully released an update containing the "' +
-          releaseCommand.package +
-          '" ' +
-          "directory" +
-          ' to the "' +
-          releaseCommand.deploymentName +
-          '" deployment of the "' +
-          releaseCommand.appName +
-          '" app.'
-      );
-    })
-    .catch((err: CodePushError) => releaseErrorHandler(err, releaseCommand));
+  try {
+    await sdk.isAuthenticated(true);
+    await sdk.releaseNative(releaseCommand.appName, releaseCommand.deploymentName, filePath, updateMetadata, uploadProgress);
+    log(
+      'Successfully released an update containing the "' +
+        releaseCommand.package +
+        '" ' +
+        "directory" +
+        ' to the "' +
+        releaseCommand.deploymentName +
+        '" deployment of the "' +
+        releaseCommand.appName +
+        '" app.'
+    );
+  } catch (err) {
+    releaseErrorHandler(err, releaseCommand);
+  }
 };
 
-function rollback(command: cli.IRollbackCommand): Promise<void> {
-  return confirm().then((wasConfirmed: boolean) => {
-    if (!wasConfirmed) {
-      log("Rollback cancelled.");
-      return;
-    }
+async function rollback(command: cli.IRollbackCommand): Promise<void> {
+  if (!(await confirm())) {
+    log("Rollback cancelled.");
+    return;
+  }
 
-    return sdk.rollback(command.appName, command.deploymentName, command.targetRelease || undefined).then((): void => {
-      log(
-        'Successfully performed a rollback on the "' + command.deploymentName + '" deployment of the "' + command.appName + '" app.'
-      );
-    });
-  });
+  await sdk.rollback(command.appName, command.deploymentName, command.targetRelease || undefined);
+  log('Successfully performed a rollback on the "' + command.deploymentName + '" deployment of the "' + command.appName + '" app.');
 }
 
 function requestAccessKey(): Promise<string> {
@@ -1882,28 +1777,25 @@ function serializeConnectionInfo(accessKey: string, preserveAccessKeyOnLogout: b
   );
 }
 
-function sessionList(command: cli.ISessionListCommand): Promise<void> {
+async function sessionList(command: cli.ISessionListCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
 
-  return sdk.getSessions().then((sessions: Session[]): void => {
-    printSessions(command.format, sessions);
-  });
+  const sessions: Session[] = await sdk.getSessions();
+  printSessions(command.format, sessions);
 }
 
-function sessionRemove(command: cli.ISessionRemoveCommand): Promise<void> {
+async function sessionRemove(command: cli.ISessionRemoveCommand): Promise<void> {
   if (os.hostname() === command.machineName) {
     throw new Error("Cannot remove the current login session via this command. Please run 'revopush logout' instead.");
-  } else {
-    return confirm().then((wasConfirmed: boolean): Promise<void> => {
-      if (wasConfirmed) {
-        return sdk.removeSession(command.machineName).then((): void => {
-          log(`Successfully removed the login session for "${command.machineName}".`);
-        });
-      }
-
-      log("Session removal cancelled.");
-    });
   }
+
+  if (await confirm()) {
+    await sdk.removeSession(command.machineName);
+    log(`Successfully removed the login session for "${command.machineName}".`);
+    return;
+  }
+
+  log("Session removal cancelled.");
 }
 
 function releaseErrorHandler(error: CodePushError, command: cli.ICommand): void {
@@ -1940,12 +1832,11 @@ function throwForInvalidOutputFormat(format: string): void {
   }
 }
 
-function whoami(_command: cli.ICommand): Promise<void> {
-  return sdk.getAccountInfo().then((account): void => {
-    const accountInfo = `${account.email} (${account.linkedProviders.join(", ")})`;
+async function whoami(_command: cli.ICommand): Promise<void> {
+  const account: Account = await sdk.getAccountInfo();
+  const accountInfo = `${account.email} (${account.linkedProviders.join(", ")})`;
 
-    log(accountInfo);
-  });
+  log(accountInfo);
 }
 
 function isCommandOptionSpecified(option: any): boolean {
