@@ -6,6 +6,7 @@ import * as path from "path";
 import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
 import * as cli from "../script/types/cli";
+import * as uiLog from "../script/ui/log";
 import {
   ASSET_OPTIMIZATION_DOCS_URL,
   MAX_ASSET_SIZE_BYTES,
@@ -44,7 +45,7 @@ describe("command-executor release size checks", () => {
       isAuthenticated: sinon.stub().resolves(true),
       release: sdkRelease,
     });
-    sinon.stub(cmdexec, "log");
+    sinon.stub(uiLog, "log");
     sinon.stub(console, "log");
     warn = sinon.stub(console, "warn");
   });

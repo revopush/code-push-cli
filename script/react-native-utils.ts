@@ -8,7 +8,8 @@ import { findHermesc, isBaseBytecodeCompatible } from "./utils/hermes-utils";
 import { restoreSourceMapMetadata } from "./utils/source-map-utils";
 import * as dotenv from "dotenv";
 import * as cli from "./types/cli";
-import { log, sdk } from "./command-executor";
+import { log } from "./ui/log";
+import type AccountManager = require("./management-sdk");
 
 export function isValidVersion(version: string): boolean {
   return !!valid(version) || /^\d+\.\d+$/.test(version);
@@ -46,6 +47,7 @@ export function getSourceMapPaths(
 type BaseRelease = Pick<cli.IReleaseReactCommand, "appName" | "deploymentName" | "appStoreVersion" | "buildNumber">;
 
 export async function takeHermesBaseBytecode(
+  sdk: Pick<AccountManager, "getBaseRelease">,
   { appName, deploymentName, appStoreVersion, buildNumber }: BaseRelease,
   baseReleaseTmpFolder: string,
   outputFolder: string,
