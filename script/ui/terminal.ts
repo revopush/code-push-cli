@@ -24,6 +24,12 @@ export const confirm = (message: string = "Are you sure?"): Promise<boolean> => 
         },
       },
       (err: any, result: any): void => {
+        // Ctrl+C means "no"; other errors (e.g. no terminal) still fail the command
+        if (err?.message === "canceled") {
+          resolve(false);
+          return;
+        }
+
         const accepted = result.response && result.response.toLowerCase() === "y";
         const rejected = !result.response || result.response.toLowerCase() === "n";
 

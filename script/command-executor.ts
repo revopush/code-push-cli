@@ -461,7 +461,7 @@ function getTotalActiveFromDeploymentMetrics(metrics: DeploymentMetrics): number
   return totalActive;
 }
 
-function initiateExternalAuthenticationAsync(action: string, serverUrl?: string): void {
+function openLoginPage(serverUrl?: string): void {
   const hostname: string = os.hostname();
   const url: string = `${serverUrl || AccountManager.APP_SERVER_URL}/cli-login?hostname=${hostname}`;
   log("Opening your browser...");
@@ -470,7 +470,7 @@ function initiateExternalAuthenticationAsync(action: string, serverUrl?: string)
 }
 
 async function link(command: cli.ILinkCommand): Promise<void> {
-  initiateExternalAuthenticationAsync("link", command.serverUrl);
+  openLoginPage(command.serverUrl);
 }
 
 async function login(command: cli.ILoginCommand): Promise<void> {
@@ -482,12 +482,12 @@ async function login(command: cli.ILoginCommand): Promise<void> {
       throw new Error("Invalid access key.");
     }
   } else {
-    await loginWithExternalAuthentication("login", command.apiServerUrl, command.appServerUrl);
+    await loginWithExternalAuthentication(command.apiServerUrl, command.appServerUrl);
   }
 }
 
-async function loginWithExternalAuthentication(action: string, apiServerUrl?: string, appServerUrl?: string): Promise<void> {
-  initiateExternalAuthenticationAsync(action, appServerUrl);
+async function loginWithExternalAuthentication(apiServerUrl?: string, appServerUrl?: string): Promise<void> {
+  openLoginPage(appServerUrl);
   log(""); // Insert newline
 
   const accessKey: string = await requestAccessKey();
@@ -536,7 +536,7 @@ async function getReactNativeProjectVersionInfo(
 }
 
 async function register(command: cli.IRegisterCommand): Promise<void> {
-  return loginWithExternalAuthentication("register", command.serverUrl);
+  return loginWithExternalAuthentication(command.serverUrl);
 }
 
 async function promote(command: cli.IPromoteCommand): Promise<void> {

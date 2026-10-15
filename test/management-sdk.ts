@@ -2,10 +2,15 @@
 // Licensed under the MIT License.
 
 import { strict as assert } from "assert";
+import * as fs from "fs";
+import * as path from "path";
+import * as sinon from "sinon";
 import superagent = require("superagent");
 import installSuperagentMock = require("superagent-mock");
 
 import AccountManager = require("../script/management-sdk");
+import * as fileUtils from "../script/utils/file-utils";
+import { useTempDirectory } from "./helpers/temp-directory";
 
 interface MockedResponse {
   text: string;
@@ -271,6 +276,34 @@ describe("Management SDK", () => {
       mockServerResponse(200, JSON.stringify({ package: { label: "v1" } }));
 
       assert.equal(await manager.rollback("appName", "deploymentName", "v1"), null);
+    });
+  });
+
+  describe("uploads", () => {
+    const project = useTempDirectory("management-sdk", { chdir: true });
+
+    afterEach(() => sinon.restore());
+
+    it("release deletes the partly written zip when zipping fails", async () => {
+      project.write("update/index.bundle", "bundle");
+      sinon.stub(fileUtils, "createZip").callsFake(async (zipPath: string) => {
+        fs.writeFileSync(zipPath, "partial");
+        throw new Error("zip failed");
+      });
+
+      await assert.rejects(manager.release("appName", "deploymentName", "update", {}), { message: "zip failed" });
+      assert.deepEqual(
+        fs.readdirSync(project.path).filter((file) => path.extname(file) === ".zip"),
+        []
+      );
+    });
+
+    it("releaseNative rejects with the server error when its zip is already gone", async () => {
+      mockServerResponse(500, "Server error");
+
+      await assert.rejects(manager.releaseNative("appName", "deploymentName", path.join(project.path, "missing.zip"), {}), {
+        statusCode: 500,
+      });
     });
   });
 });

@@ -364,7 +364,10 @@ class AccountManager {
         })
         .end((err: any, res: superagent.Response) => {
           if (packageFile.isTemporary) {
-            fs.unlinkSync(packageFile.path);
+            // Best effort: failing to delete the temp file must not hide the upload's result
+            try {
+              fs.rmSync(packageFile.path, { force: true });
+            } catch {}
           }
 
           if (err) {
@@ -431,11 +434,16 @@ class AccountManager {
     const files: string[] = await listFiles(filePath);
     const baseDirectoryPath: string = path.dirname(filePath);
     const zipPath: string = path.join(process.cwd(), this.generateRandomFilename(15) + ".zip");
-    await createZip(
-      zipPath,
-      // yazl does not like backslash (\) in the metadata path.
-      files.map((file) => [file, normalizePath(path.relative(baseDirectoryPath, file))])
-    );
+    try {
+      await createZip(
+        zipPath,
+        // yazl does not like backslash (\) in the metadata path.
+        files.map((file) => [file, normalizePath(path.relative(baseDirectoryPath, file))])
+      );
+    } catch (error) {
+      fs.rmSync(zipPath, { force: true });
+      throw error;
+    }
     return { isTemporary: true, path: zipPath };
   }
 
