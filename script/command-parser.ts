@@ -1317,41 +1317,14 @@ export function createCommand(): cli.ICommand {
         break;
 
       case "release-react":
+        if (arg1 && arg2) {
+          cmd = getReleaseReactCommand(cli.CommandType.releaseReact, arg1, arg2, argv);
+        }
+        break;
+
       case "release-expo":
         if (arg1 && arg2) {
-          cmd = { type: arg0 === "release-expo" ? cli.CommandType.releaseExpo : cli.CommandType.releaseReact };
-
-          const releaseReactCommand = cmd as cli.IReleaseReactCommand;
-
-          releaseReactCommand.appName = arg1;
-          releaseReactCommand.platform = arg2;
-
-          releaseReactCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
-          releaseReactCommand.buildNumber = argv["buildNumber"] as any;
-          releaseReactCommand.bundleName = argv["bundleName"] as any;
-          releaseReactCommand.deploymentName = argv["deploymentName"] as any;
-          releaseReactCommand.disabled = argv["disabled"] as any;
-          releaseReactCommand.description = argv["description"] ? backslash(argv["description"]) : "";
-          releaseReactCommand.development = argv["development"] as any;
-          releaseReactCommand.entryFile = argv["entryFile"] as any;
-          releaseReactCommand.gradleFile = argv["gradleFile"] as any;
-          releaseReactCommand.mandatory = argv["mandatory"] as any;
-          releaseReactCommand.initial = argv["initial"] as any;
-          releaseReactCommand.noDuplicateReleaseError = argv["noDuplicateReleaseError"] as any;
-          releaseReactCommand.plistFile = argv["plistFile"] as any;
-          releaseReactCommand.plistFilePrefix = argv["plistFilePrefix"] as any;
-          releaseReactCommand.rollout = getRolloutValue(argv["rollout"] as any);
-          releaseReactCommand.sourcemapOutput = argv["sourcemapOutput"] as any;
-          releaseReactCommand.outputDir = argv["outputDir"] as any;
-          releaseReactCommand.useHermes = argv["useHermes"] as any;
-          releaseReactCommand.extraHermesFlags = argv["extraHermesFlags"] as any;
-          releaseReactCommand.podFile = argv["podFile"] as any;
-          releaseReactCommand.privateKeyPath = argv["privateKeyPath"] as any;
-          releaseReactCommand.xcodeProjectFile = argv["xcodeProjectFile"] as any;
-          releaseReactCommand.xcodeTargetName = argv["xcodeTargetName"] as any;
-          releaseReactCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
-          releaseReactCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
-          releaseReactCommand.force = argv["force"] as any;
+          cmd = getReleaseReactCommand(cli.CommandType.releaseExpo, arg1, arg2, argv);
         }
         break;
 
@@ -1414,6 +1387,47 @@ export function createCommand(): cli.ICommand {
 
     return cmd;
   }
+}
+
+function getReleaseReactCommand(
+  type: cli.CommandType,
+  appName: string,
+  platform: string,
+  argv: yargs.Arguments
+): cli.IReleaseReactCommand {
+  const releaseReactCommand = { type } as cli.IReleaseReactCommand;
+
+  releaseReactCommand.appName = appName;
+  releaseReactCommand.platform = platform;
+
+  releaseReactCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
+  releaseReactCommand.buildNumber = argv["buildNumber"] as any;
+  releaseReactCommand.bundleName = argv["bundleName"] as any;
+  releaseReactCommand.deploymentName = argv["deploymentName"] as any;
+  releaseReactCommand.disabled = argv["disabled"] as any;
+  releaseReactCommand.description = argv["description"] ? backslash(argv["description"]) : "";
+  releaseReactCommand.development = argv["development"] as any;
+  releaseReactCommand.entryFile = argv["entryFile"] as any;
+  releaseReactCommand.gradleFile = argv["gradleFile"] as any;
+  releaseReactCommand.mandatory = argv["mandatory"] as any;
+  releaseReactCommand.initial = argv["initial"] as any;
+  releaseReactCommand.noDuplicateReleaseError = argv["noDuplicateReleaseError"] as any;
+  releaseReactCommand.plistFile = argv["plistFile"] as any;
+  releaseReactCommand.plistFilePrefix = argv["plistFilePrefix"] as any;
+  releaseReactCommand.rollout = getRolloutValue(argv["rollout"] as any);
+  releaseReactCommand.sourcemapOutput = argv["sourcemapOutput"] as any;
+  releaseReactCommand.outputDir = argv["outputDir"] as any;
+  releaseReactCommand.useHermes = argv["useHermes"] as any;
+  releaseReactCommand.extraHermesFlags = argv["extraHermesFlags"] as any;
+  releaseReactCommand.podFile = argv["podFile"] as any;
+  releaseReactCommand.privateKeyPath = argv["privateKeyPath"] as any;
+  releaseReactCommand.xcodeProjectFile = argv["xcodeProjectFile"] as any;
+  releaseReactCommand.xcodeTargetName = argv["xcodeTargetName"] as any;
+  releaseReactCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
+  releaseReactCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
+  releaseReactCommand.force = argv["force"] as any;
+
+  return releaseReactCommand;
 }
 
 function isValidRollout(args: any): boolean {
