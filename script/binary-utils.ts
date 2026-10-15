@@ -4,7 +4,6 @@ import * as crypto from "crypto";
 import * as chalk from "chalk";
 import { log } from "./command-executor";
 import * as os from "os";
-import * as Q from "q";
 import * as yazl from "yazl";
 import * as yauzl from "yauzl";
 import { readFile } from "node:fs/promises";
@@ -140,11 +139,13 @@ async function takeHashesFromMetadata(metadataPath: string): Promise<BinaryHashe
   return Object.fromEntries(metadata.manifest.map((item) => item.split(":")));
 }
 
-function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Q.Promise<void> {
-  return Q.Promise<void>((resolve, reject) => {
+function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const zipFile = new yazl.ZipFile();
     const writeStream = fs.createWriteStream(zipPath);
 
+    // yazl reports unreadable input files on the ZipFile itself
+    zipFile.on("error", reject);
     zipFile.outputStream
       .pipe(writeStream)
       .on("error", (error: Error) => {

@@ -10,14 +10,12 @@ import * as chalk from "chalk";
 import * as moment from "moment";
 import * as os from "os";
 import * as path from "path";
-import * as Q from "q";
 import * as semver from "semver";
 import * as cli from "../script/types/cli";
 import sign from "./sign";
 const ApkReader = require("@devicefarmer/adbkit-apkreader");
 import {
   AccessKey,
-  Account,
   App,
   CodePushError,
   CollaboratorMap,
@@ -53,7 +51,6 @@ import {
 
 import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
-import Promise = Q.Promise;
 import { ReactNativePackageInfo } from "./types/rest-definitions";
 import { getExpoCliPath } from "./expo-utils";
 
@@ -103,7 +100,7 @@ let connectionInfo: ILoginConnectionInfo;
 
 export const confirm = (message: string = "Are you sure?"): Promise<boolean> => {
   message += " (y/N):";
-  return Promise<boolean>((resolve): void => {
+  return new Promise<boolean>((resolve): void => {
     prompt.message = "";
     prompt.delimiter = "";
 
@@ -291,15 +288,15 @@ function deleteConnectionInfoCache(printMessage: boolean = true): void {
 }
 
 function deleteFolder(folderPath: string): Promise<void> {
-  return Q(fs.promises.rm(folderPath, { recursive: true, force: true, maxRetries: 3 }));
+  return fs.promises.rm(folderPath, { recursive: true, force: true, maxRetries: 3 });
 }
 
-async function deleteReactTempFolders(): globalThis.Promise<void> {
+async function deleteReactTempFolders(): Promise<void> {
   const tempFolder: string = os.tmpdir();
   // An unreadable temp folder means there is nothing to delete
   const names: string[] = await fs.promises.readdir(tempFolder).catch((): string[] => []);
   const reactFolders: string[] = names.filter((name) => name.startsWith("react-"));
-  await Q.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
+  await Promise.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
 }
 
 function deploymentAdd(command: cli.IDeploymentAddCommand): Promise<void> {
@@ -359,11 +356,11 @@ export const deploymentList = (command: cli.IDeploymentListCommand, showPackage:
               }
             });
           } else {
-            return Q(<void>null);
+            return Promise.resolve();
           }
         });
 
-        return Q.all(metricsPromises);
+        return Promise.all(metricsPromises);
       }
     })
     .then(() => {
@@ -373,7 +370,7 @@ export const deploymentList = (command: cli.IDeploymentListCommand, showPackage:
 
 function deploymentRemove(command: cli.IDeploymentRemoveCommand): Promise<void> {
   const confirmation = command.isForce
-    ? Q.resolve(true)
+    ? Promise.resolve(true)
     : confirm("Are you sure you want to remove this deployment? Note that its deployment key will be PERMANENTLY unrecoverable.");
 
   return confirmation.then((wasConfirmed: boolean): Promise<void> => {
@@ -404,11 +401,11 @@ function deploymentRename(command: cli.IDeploymentRenameCommand): Promise<void> 
 function deploymentHistory(command: cli.IDeploymentHistoryCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);
 
-  return Q.all<any>([
+  return Promise.all([
     sdk.getAccountInfo(),
     sdk.getDeploymentHistory(command.appName, command.deploymentName),
     sdk.getDeploymentMetrics(command.appName, command.deploymentName),
-  ]).spread<void>((account: Account, deploymentHistory: Package[], metrics: DeploymentMetrics): void => {
+  ]).then(([account, deploymentHistory, metrics]): void => {
     const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
     deploymentHistory.forEach((packageObject: Package) => {
       if (metrics[packageObject.label]) {
@@ -450,7 +447,7 @@ function deserializeConnectionInfo(): ILoginConnectionInfo {
 export function execute(command: cli.ICommand) {
   connectionInfo = deserializeConnectionInfo();
 
-  return Q(<void>null).then(() => {
+  return Promise.resolve().then(() => {
     switch (command.type) {
       // Must not be logged in
       case cli.CommandType.login:
@@ -604,7 +601,7 @@ function initiateExternalAuthenticationAsync(action: string, serverUrl?: string)
 
 function link(command: cli.ILinkCommand): Promise<void> {
   initiateExternalAuthenticationAsync("link", command.serverUrl);
-  return Q(<void>null);
+  return Promise.resolve();
 }
 
 function login(command: cli.ILoginCommand): Promise<void> {
@@ -646,7 +643,7 @@ function loginWithExternalAuthentication(action: string, apiServerUrl?: string, 
 }
 
 function logout(_command: cli.ICommand): Promise<void> {
-  return Q(<void>null)
+  return Promise.resolve()
     .then((): Promise<void> => {
       if (!connectionInfo.preserveAccessKeyOnLogout) {
         const machineName: string = os.hostname();
@@ -940,9 +937,9 @@ function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, pro
       );
     }
 
-    return Q({ appVersion: rawShortVersion, buildNumber: rawBundleVersion });
+    return Promise.resolve({ appVersion: rawShortVersion, buildNumber: rawBundleVersion });
   } else if (command.platform === "android") {
-    return Q(getAndroidVersionInfo(command.gradleFile));
+    return getAndroidVersionInfo(command.gradleFile);
   }
 }
 
@@ -997,7 +994,7 @@ function getAppVersionFromXcodeProject(
     throw new Error(`The "CURRENT_PROJECT_VERSION" key doesn't exist in the "${resolvedPbxprojFile}" file.`);
   }
 
-  return Q({ appVersion: marketingVersion, buildNumber: String(currentProjectVersion) });
+  return Promise.resolve({ appVersion: marketingVersion, buildNumber: String(currentProjectVersion) });
 }
 
 function printJson(object: any): void {
@@ -1187,7 +1184,7 @@ export const runExpoExportEmbedCommand = async ({
   const expoBundleProcess = spawn("node", expoBundleArgs);
   log(`node ${expoBundleArgs.join(" ")}`);
 
-  return Promise<void>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     expoBundleProcess.stdout.on("data", (data: Buffer) => {
       log(data.toString().trim());
     });
@@ -1287,7 +1284,7 @@ async function planBundle(
   outputFolder: string,
   bundleName: string,
   sourcemapOutput: string
-): globalThis.Promise<BundlePlan> {
+): Promise<BundlePlan> {
   const isHermes = command.useHermes || (await isHermesEnabled(command));
   const sourceMaps = getSourceMapPaths(command, bundleName, sourcemapOutput, isHermes);
   return {
@@ -1311,7 +1308,7 @@ async function compileHermesBundle(
   bundleName: string,
   sourceMaps: SourceMapPaths,
   baseReleaseTmpFolder: string
-): globalThis.Promise<void> {
+): Promise<void> {
   await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
   const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
 
@@ -1375,18 +1372,15 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
       // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
       // via --buildNumber. Auto-detection only applies to release-native where the binary
       // build number is the natural targeting key.
-      const versionInfoPromise: Promise<ProjectVersionInfo> = command.appStoreVersion
-        ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
-        : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
-            appVersion: detected.appVersion,
-            buildNumber: command.buildNumber,
-          }));
+      const versionInfo: ProjectVersionInfo = command.appStoreVersion
+        ? { appVersion: command.appStoreVersion, buildNumber: command.buildNumber }
+        : { appVersion: (await getReactNativeProjectVersionInfo(command, projectName)).appVersion, buildNumber: command.buildNumber };
 
       if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
         await createEmptyTempReleaseFolder(sourcemapOutputFolder);
       }
 
-      return versionInfoPromise;
+      return versionInfo;
     })
     .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
       throwForInvalidSemverRange(appVersion);
@@ -1462,19 +1456,19 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
         // via --buildNumber. Auto-detection only applies to release-native where the binary
         // build number is the natural targeting key.
-        const versionInfoPromise: Promise<ProjectVersionInfo> = command.appStoreVersion
-          ? Q({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
-          : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
-              appVersion: detected.appVersion,
+        const versionInfo: ProjectVersionInfo = command.appStoreVersion
+          ? { appVersion: command.appStoreVersion, buildNumber: command.buildNumber }
+          : {
+              appVersion: (await getReactNativeProjectVersionInfo(command, projectName)).appVersion,
               buildNumber: command.buildNumber,
-            }));
+            };
 
         if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
           // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
           await createEmptyTempReleaseFolder(sourcemapOutputFolder);
         }
 
-        return versionInfoPromise;
+        return versionInfo;
       })
       .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
         throwForInvalidSemverRange(appVersion);
@@ -1781,7 +1775,7 @@ function rollback(command: cli.IRollbackCommand): Promise<void> {
 }
 
 function requestAccessKey(): Promise<string> {
-  return Promise<string>((resolve): void => {
+  return new Promise<string>((resolve): void => {
     prompt.message = "";
     prompt.delimiter = "";
 
@@ -1850,7 +1844,7 @@ export const runReactNativeBundleCommand = async (
   const reactNativeBundleProcess = spawn("node", reactNativeBundleArgs);
   log(`node ${reactNativeBundleArgs.join(" ")}`);
 
-  return Promise<void>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     reactNativeBundleProcess.stdout.on("data", (data: Buffer) => {
       log(data.toString().trim());
     });

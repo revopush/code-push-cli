@@ -4,11 +4,8 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import Q = require("q");
 import superagent = require("superagent");
 import * as yazl from "yazl";
-
-import Promise = Q.Promise;
 
 import {
   AccessKey,
@@ -87,7 +84,7 @@ class AccountManager {
   }
 
   public isAuthenticated(throwIfUnauthorized?: boolean): Promise<boolean> {
-    return Promise<any>((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       const request: superagent.Request<any> = superagent.get(`${this._serverUrl}${urlEncode(["/authenticated"])}`);
       this.attachCredentials(request);
 
@@ -304,73 +301,62 @@ class AccountManager {
     );
   }
 
-  public release(
+  public async release(
     appName: string,
     deploymentName: string,
     filePath: string,
     updateMetadata: PackageInfo,
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
-    return Promise<void>((resolve, reject) => {
+    const packageFile: PackageFile = await this.packageFileFromPath(filePath);
+    return new Promise<void>((resolve, reject) => {
       const request: superagent.Request<any> = superagent.post(
         this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`])
       );
 
       this.attachCredentials(request);
 
-      const getPackageFilePromise = Q.Promise((resolve, reject) => {
-        this.packageFileFromPath(filePath)
-          .then((result) => {
-            resolve(result);
-          })
-          .catch((error) => {
-            reject(error);
-          });
-      });
+      const file: any = fs.createReadStream(packageFile.path);
+      request
+        .attach("package", file)
+        .field("packageInfo", JSON.stringify(updateMetadata))
+        .on("progress", (event: any) => {
+          if (uploadProgressCallback && event && event.total > 0) {
+            const currentProgress: number = (event.loaded / event.total) * 100;
+            uploadProgressCallback(currentProgress);
+          }
+        })
+        .end((err: any, res: superagent.Response) => {
+          if (packageFile.isTemporary) {
+            fs.unlinkSync(packageFile.path);
+          }
 
-      getPackageFilePromise.then((packageFile: PackageFile) => {
-        const file: any = fs.createReadStream(packageFile.path);
-        request
-          .attach("package", file)
-          .field("packageInfo", JSON.stringify(updateMetadata))
-          .on("progress", (event: any) => {
-            if (uploadProgressCallback && event && event.total > 0) {
-              const currentProgress: number = (event.loaded / event.total) * 100;
-              uploadProgressCallback(currentProgress);
-            }
-          })
-          .end((err: any, res: superagent.Response) => {
-            if (packageFile.isTemporary) {
-              fs.unlinkSync(packageFile.path);
-            }
+          if (err) {
+            reject(this.getCodePushError(err, res));
+            return;
+          }
 
-            if (err) {
-              reject(this.getCodePushError(err, res));
-              return;
-            }
+          if (res.ok) {
+            resolve(<void>null);
+          } else {
+            let body;
+            try {
+              body = JSON.parse(res.text);
+            } catch (err) {}
 
-            if (res.ok) {
-              resolve(<void>null);
+            if (body) {
+              reject(<CodePushError>{
+                message: body.message,
+                statusCode: res && res.status,
+              });
             } else {
-              let body;
-              try {
-                body = JSON.parse(res.text);
-              } catch (err) {}
-
-              if (body) {
-                reject(<CodePushError>{
-                  message: body.message,
-                  statusCode: res && res.status,
-                });
-              } else {
-                reject(<CodePushError>{
-                  message: res.text,
-                  statusCode: res && res.status,
-                });
-              }
+              reject(<CodePushError>{
+                message: res.text,
+                statusCode: res && res.status,
+              });
             }
-          });
-      });
+          }
+        });
     });
   }
 
@@ -381,7 +367,7 @@ class AccountManager {
     updateMetadata: ReactNativePackageInfo,
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
-    return Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const request: superagent.Request<any> = superagent.post(
         this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/nativerelease`])
       );
@@ -461,43 +447,38 @@ class AccountManager {
     ).then(() => null);
   }
 
-  private packageFileFromPath(filePath: string) {
-    let getPackageFilePromise: Promise<PackageFile>;
-    if (fs.lstatSync(filePath).isDirectory()) {
-      const directoryPath: string = filePath;
-      getPackageFilePromise = Q(listFiles(directoryPath)).then((files: string[]) =>
-        Promise<PackageFile>((resolve: (file: PackageFile) => void, reject: (reason: Error) => void): void => {
-          const baseDirectoryPath = path.dirname(directoryPath);
-          const fileName: string = this.generateRandomFilename(15) + ".zip";
-          const zipFile = new yazl.ZipFile();
-          const writeStream: fs.WriteStream = fs.createWriteStream(fileName);
-
-          zipFile.outputStream
-            .pipe(writeStream)
-            .on("error", (error: Error): void => {
-              reject(error);
-            })
-            .on("close", (): void => {
-              filePath = path.join(process.cwd(), fileName);
-
-              resolve({ isTemporary: true, path: filePath });
-            });
-
-          for (let i = 0; i < files.length; ++i) {
-            const file: string = files[i];
-            // yazl does not like backslash (\) in the metadata path.
-            const relativePath: string = normalizePath(path.relative(baseDirectoryPath, file));
-
-            zipFile.addFile(file, relativePath);
-          }
-
-          zipFile.end();
-        })
-      );
-    } else {
-      getPackageFilePromise = Q({ isTemporary: false, path: filePath });
+  private async packageFileFromPath(filePath: string): Promise<PackageFile> {
+    if (!fs.lstatSync(filePath).isDirectory()) {
+      return { isTemporary: false, path: filePath };
     }
-    return getPackageFilePromise;
+
+    const files: string[] = await listFiles(filePath);
+    return new Promise<PackageFile>((resolve, reject) => {
+      const baseDirectoryPath = path.dirname(filePath);
+      const fileName: string = this.generateRandomFilename(15) + ".zip";
+      const zipFile = new yazl.ZipFile();
+      const writeStream: fs.WriteStream = fs.createWriteStream(fileName);
+
+      // yazl reports unreadable input files on the ZipFile itself
+      zipFile.on("error", reject);
+      zipFile.outputStream
+        .pipe(writeStream)
+        .on("error", (error: Error): void => {
+          reject(error);
+        })
+        .on("close", (): void => {
+          resolve({ isTemporary: true, path: path.join(process.cwd(), fileName) });
+        });
+
+      for (const file of files) {
+        // yazl does not like backslash (\) in the metadata path.
+        const relativePath: string = normalizePath(path.relative(baseDirectoryPath, file));
+
+        zipFile.addFile(file, relativePath);
+      }
+
+      zipFile.end();
+    });
   }
 
   private generateRandomFilename(length: number): string {
@@ -544,7 +525,7 @@ class AccountManager {
     expectResponseBody: boolean,
     contentType: string
   ): Promise<JsonResponse> {
-    return Promise<JsonResponse>((resolve, reject) => {
+    return new Promise<JsonResponse>((resolve, reject) => {
       let request: superagent.Request<any> = (<any>superagent)[method](this._serverUrl + endpoint);
 
       this.attachCredentials(request);

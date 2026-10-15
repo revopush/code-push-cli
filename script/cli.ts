@@ -15,13 +15,10 @@ function run() {
     return;
   }
 
-  execute
-    .execute(command)
-    .catch((error: any): void => {
-      console.error(chalk.red(`[Error]  ${error.message}`));
-      process.exit(1);
-    })
-    .done();
+  execute.execute(command).catch((error: any): void => {
+    console.error(chalk.red(`[Error]  ${error.message}`));
+    process.exit(1);
+  });
 }
 
 run();
