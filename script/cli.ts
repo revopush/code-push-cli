@@ -3,15 +3,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import * as parser from "./command-parser";
+import { createCommand } from "./parser/create-command";
+import { showHelp } from "./parser/commands";
 import * as execute from "./command-executor";
 import * as chalk from "chalk";
 
 function run() {
-  const command = parser.createCommand();
+  const command = createCommand();
 
   if (!command) {
-    parser.showHelp(/*showRootDescription*/ false);
+    showHelp(/*showRootDescription*/ false);
     return;
   }
 

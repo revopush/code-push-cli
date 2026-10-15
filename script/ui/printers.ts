@@ -1,7 +1,7 @@
 import * as chalk from "chalk";
 import * as cli from "../types/cli";
 import { AccessKey, App, CollaboratorMap, CollaboratorProperties, Deployment, Package, PackageWithMetrics, Session } from "../types";
-import { log } from "./log";
+import { log } from "./terminal";
 import AccountManager = require("../management-sdk");
 import wordwrap = require("wordwrap");
 

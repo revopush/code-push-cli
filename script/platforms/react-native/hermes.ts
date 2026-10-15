@@ -7,12 +7,12 @@ import * as chalk from "chalk";
 import { coerce, gte } from "semver";
 
 import * as cli from "../../types/cli";
-import { log } from "../../ui/log";
+import { log } from "../../ui/terminal";
 import { downloadBlob, extractArchive, fileExists } from "../../utils/file-utils";
 import type AccountManager = require("../../management-sdk");
 import { getGradleHermesCommand, getGradleHermesEnabled, readGradleProperty } from "../android/gradle";
 import { getXcodeDotEnvValue } from "../ios/xcode";
-import { getReactNativePackagePath, getReactNativeVersion } from "./project";
+import { getReactNativePackagePath, getReactNativeVersion } from "./bundler";
 import { restoreSourceMapMetadata, SourceMapPaths } from "./source-maps";
 
 const OS_BIN = ({ win32: "win64-bin", darwin: "osx-bin" } as Record<string, string>)[process.platform] ?? "linux64-bin";

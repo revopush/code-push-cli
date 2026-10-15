@@ -2,7 +2,7 @@ import * as chalk from "chalk";
 import * as fs from "fs";
 import * as path from "path";
 import { Headers } from "../types";
-import { log } from "../ui/log";
+import { log } from "../ui/terminal";
 import AccountManager = require("../management-sdk");
 
 const packageJson = require("../../../package.json");

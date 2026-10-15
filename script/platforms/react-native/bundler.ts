@@ -3,8 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as chalk from "chalk";
 
-import { log } from "../../ui/log";
-import { getReactNativePackagePath } from "./project";
+import { log } from "../../ui/terminal";
 
 export const spawn = childProcess.spawn;
 
@@ -174,4 +173,14 @@ function getExpoCliPath(): string {
   throw new Error(
     'Unable to resolve "@expo/cli". Please make sure it is installed in your project (e.g. "npm install --save-dev @expo/cli").'
   );
+}
+
+export function getReactNativePackagePath(): string {
+  const result = childProcess.spawnSync("node", ["--print", "require.resolve('react-native/package.json')"]);
+  return result.status === 0 ? path.dirname(result.stdout.toString().trim()) : path.join("node_modules", "react-native");
+}
+
+export function getReactNativeVersion(): string | undefined {
+  const packageJson = path.join(getReactNativePackagePath(), "package.json");
+  return fs.existsSync(packageJson) ? JSON.parse(fs.readFileSync(packageJson, "utf8")).version : undefined;
 }

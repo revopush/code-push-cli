@@ -54,9 +54,7 @@ import {
   ILoginConnectionInfo,
   serializeConnectionInfo,
 } from "./auth/connection";
-import { log } from "./ui/log";
-import { confirm, requestAccessKey } from "./ui/prompt";
-import { createUploadProgress } from "./ui/progress";
+import { confirm, createUploadProgress, log, requestAccessKey } from "./ui/terminal";
 import {
   printAccessKeys,
   printAppList,

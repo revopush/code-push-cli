@@ -8,7 +8,7 @@ import * as chalk from "chalk";
 import * as plist from "plist";
 import * as yauzl from "yauzl";
 
-import { log } from "../../ui/log";
+import { log } from "../../ui/terminal";
 import { createZipArchive } from "../../utils/file-utils";
 
 export async function extractMetadataFromIOS(ipaPath: string, outputFolder: string) {

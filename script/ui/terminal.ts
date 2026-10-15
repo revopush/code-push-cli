@@ -1,6 +1,11 @@
 import * as chalk from "chalk";
 
+const ProgressBar = require("progress");
 const prompt = require("prompt");
+
+export function log(message: unknown): void {
+  console.log(message);
+}
 
 export const confirm = (message: string = "Are you sure?"): Promise<boolean> => {
   message += " (y/N):";
@@ -59,4 +64,20 @@ export function requestAccessKey(): Promise<string> {
       }
     );
   });
+}
+
+/** Returns a callback that draws upload progress, given the percentage uploaded so far */
+export function createUploadProgress(): (currentProgress: number) => void {
+  let lastTotalProgress = 0;
+  const progressBar = new ProgressBar("Upload progress:[:bar] :percent :etas", {
+    complete: "=",
+    incomplete: " ",
+    width: 50,
+    total: 100,
+  });
+
+  return (currentProgress: number): void => {
+    progressBar.tick(currentProgress - lastTotalProgress);
+    lastTotalProgress = currentProgress;
+  };
 }
