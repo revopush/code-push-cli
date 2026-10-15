@@ -21,17 +21,13 @@ export default async function sign(privateKeyPath: string, updateContentsPath: s
 
   try {
     privateKey = await fs.readFile(privateKeyPath);
-  } catch (err) {
+  } catch {
     throw new Error(`The path specified for the signing key ("${privateKeyPath}") was not valid.`);
   }
 
   // If releasing a single file, copy the file to a temporary 'CodePush' directory in which to publish the release
-  try {
-    if (!isDirectory(updateContentsPath)) {
-      updateContentsPath = copyFileToTmpDir(updateContentsPath);
-    }
-  } catch (error) {
-    throw error;
+  if (!isDirectory(updateContentsPath)) {
+    updateContentsPath = copyFileToTmpDir(updateContentsPath);
   }
 
   const signatureFilePath: string = path.join(updateContentsPath, METADATA_FILE_NAME);

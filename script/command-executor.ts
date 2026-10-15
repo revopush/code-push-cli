@@ -568,7 +568,6 @@ async function link(command: cli.ILinkCommand): Promise<void> {
 }
 
 async function login(command: cli.ILoginCommand): Promise<void> {
-  // Check if one of the flags were provided.
   if (command.accessKey) {
     sdk = getSdk(command.accessKey, CLI_HEADERS, command.apiServerUrl);
     if (await sdk.isAuthenticated()) {
@@ -1169,7 +1168,7 @@ interface ReactReleaseInputs {
 
 // Up-front validation for the React-style release flows (release-react / release-expo).
 // Throws on the first violation and returns the derived inputs. The semver-range check
-// lives in the chain since it needs the resolved app version.
+// is done by the caller since it needs the resolved app version.
 function validateReactReleaseCommand(
   command: cli.IReleaseReactCommand,
   options: { resolveEntryFile: boolean }
@@ -1326,13 +1325,12 @@ export const releaseExpo = async (command: cli.IReleaseReactCommand): Promise<vo
   // build number is the natural targeting key.
   const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
 
-  if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
+  if (!command.sourcemapOutput) {
     await createEmptyTempReleaseFolder(sourcemapOutputFolder);
   }
 
   throwForInvalidSemverRange(appVersion);
   releaseCommand.appStoreVersion = appVersion;
-  releaseCommand.buildNumber = command.buildNumber;
 
   await createEmptyTempReleaseFolder(outputFolder);
   await deleteReactTempFolders();
@@ -1344,7 +1342,7 @@ export const releaseExpo = async (command: cli.IReleaseReactCommand): Promise<vo
     await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
   }
 
-  const releaseSizeAnalysis: ReleaseSizeAnalysis = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
+  const releaseSizeAnalysis: ReleaseSizeAnalysis | null = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
 
   if (command.privateKeyPath) {
     log(chalk.cyan("\nSigning the bundle:\n"));
@@ -1392,14 +1390,12 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
   // build number is the natural targeting key.
   const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
 
-  if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
-    // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
+  if (!command.sourcemapOutput) {
     await createEmptyTempReleaseFolder(sourcemapOutputFolder);
   }
 
   throwForInvalidSemverRange(appVersion);
   releaseCommand.appStoreVersion = appVersion;
-  releaseCommand.buildNumber = command.buildNumber;
 
   await createEmptyTempReleaseFolder(outputFolder);
   // This is needed to clear the react native bundler cache:
@@ -1413,7 +1409,7 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
     await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
   }
 
-  const releaseSizeAnalysis: ReleaseSizeAnalysis = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
+  const releaseSizeAnalysis: ReleaseSizeAnalysis | null = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
 
   if (command.privateKeyPath) {
     log(chalk.cyan("\nSigning the bundle:\n"));
@@ -1509,7 +1505,6 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
     }
 
     const { package: metadataZip, appStoreVersion, buildNumber: detectedBuildNumber } = releaseCommandPartial;
-    // Use the zip file as package for release
     const releaseCommand: cli.IReleaseReactCommand = {
       type: cli.CommandType.release,
       appName: command.appName,
@@ -1529,7 +1524,6 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
     };
 
     await doNativeRelease(releaseCommand);
-    // Clean up zip file
     if (fs.existsSync(releaseCommandPartial.package)) {
       fs.unlinkSync(releaseCommandPartial.package);
     }
