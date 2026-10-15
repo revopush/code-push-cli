@@ -47,7 +47,7 @@ export default async function sign(privateKeyPath: string, updateContentsPath: s
 
   if (prevSignatureExists) {
     console.log(`Deleting previous release signature at ${signatureFilePath}`);
-    await fs.rmdir(signatureFilePath);
+    await fs.rm(signatureFilePath, { force: true });
   }
 
   const hash: string = await hashUtils.generatePackageHashFromDirectory(updateContentsPath, path.join(updateContentsPath, ".."));
