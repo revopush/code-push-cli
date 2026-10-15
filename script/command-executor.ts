@@ -1050,8 +1050,7 @@ async function patch(command: cli.IPatchCommand): Promise<void> {
 
   // Standard fields use null as "not provided"; buildNumber uses undefined (null means reset).
   // Check both to avoid treating an unset buildNumber (undefined) as a valid update.
-  const hasUpdate =
-    Object.values(packageInfo).some((v) => v !== null && v !== undefined) || command.buildNumber !== undefined;
+  const hasUpdate = Object.values(packageInfo).some((v) => v !== null && v !== undefined) || command.buildNumber !== undefined;
 
   if (!hasUpdate) {
     throw new Error("At least one property must be specified to patch a release.");
@@ -1169,10 +1168,7 @@ interface ReactReleaseInputs {
 // Up-front validation for the React-style release flows (release-react / release-expo).
 // Throws on the first violation and returns the derived inputs. The semver-range check
 // is done by the caller since it needs the resolved app version.
-function validateReactReleaseCommand(
-  command: cli.IReleaseReactCommand,
-  options: { resolveEntryFile: boolean }
-): ReactReleaseInputs {
+function validateReactReleaseCommand(command: cli.IReleaseReactCommand, options: { resolveEntryFile: boolean }): ReactReleaseInputs {
   const { resolveEntryFile } = options;
   const platform: string = (command.platform = command.platform.toLowerCase());
 
@@ -1194,7 +1190,9 @@ function validateReactReleaseCommand(
   try {
     projectPackageJson = require(path.join(process.cwd(), "package.json"));
   } catch (error) {
-    throw new Error('Unable to find or read "package.json" in the CWD. The command must be executed in a React Native project folder.');
+    throw new Error(
+      'Unable to find or read "package.json" in the CWD. The command must be executed in a React Native project folder.'
+    );
   }
 
   const projectName: string = projectPackageJson.name;
