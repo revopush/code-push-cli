@@ -7,6 +7,7 @@ import * as os from "os";
 import * as path from "path";
 import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
+import * as bundler from "../script/platforms/react-native/bundler";
 import * as cli from "../script/types/cli";
 import * as uiLog from "../script/ui/log";
 import * as uiPrompt from "../script/ui/prompt";
@@ -121,7 +122,7 @@ describe("CLI", () => {
     confirm = sinon.stub(uiPrompt, "confirm").resolves(true);
     sinon.stub(cmdexec, "createEmptyTempReleaseFolder").resolves();
     log = sinon.stub(uiLog, "log");
-    spawn = sinon.stub(cmdexec, "spawn").callsFake(fakeBundler);
+    spawn = sinon.stub(bundler, "spawn").callsFake(fakeBundler);
   });
 
   afterEach(() => sinon.restore());

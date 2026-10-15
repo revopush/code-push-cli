@@ -3,7 +3,12 @@ import * as fs from "fs";
 import * as path from "path";
 import * as sinon from "sinon";
 import * as uiLog from "../script/ui/log";
-import { findHermesc, getHermescBytecodeVersion, isBaseBytecodeCompatible, isHermesEnabled } from "../script/utils/hermes-utils";
+import {
+  findHermesc,
+  getHermescBytecodeVersion,
+  isBaseBytecodeCompatible,
+  isHermesEnabled,
+} from "../script/platforms/react-native/hermes";
 import { restoreEnvAfterEach } from "./helpers/env";
 import { useTempDirectory } from "./helpers/temp-directory";
 
@@ -22,8 +27,8 @@ function hermesBytecodeHeader(version: number): Buffer {
   return header;
 }
 
-describe("hermes-utils", () => {
-  const project = useTempDirectory("hermes-utils", { chdir: true });
+describe("hermes", () => {
+  const project = useTempDirectory("hermes", { chdir: true });
   restoreEnvAfterEach();
 
   beforeEach(() => {

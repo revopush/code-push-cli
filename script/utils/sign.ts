@@ -2,7 +2,7 @@ import * as fs from "fs/promises";
 import * as hashUtils from "./hash-utils";
 import * as path from "path";
 import * as jwt from "jsonwebtoken";
-import { copyFileToTmpDir, isDirectory } from "./utils/file-utils";
+import { copyFileToTmpDir, isDirectory } from "./file-utils";
 
 const CURRENT_CLAIM_VERSION: string = "1.0.0";
 const METADATA_FILE_NAME: string = ".codepushrelease";

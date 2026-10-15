@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { extractMetadataFromAndroid, extractMetadataFromIOS, getIosVersion, parseAabManifest } from "./binary-utils";
-
-const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
 import * as fs from "fs";
 import * as chalk from "chalk";
 import * as os from "os";
 import * as path from "path";
 import * as cli from "../script/types/cli";
-import sign from "./sign";
+import sign from "./utils/sign";
 const ApkReader = require("@devicefarmer/adbkit-apkreader");
 import {
   AccessKey,
@@ -25,18 +22,14 @@ import {
   PackageWithMetrics,
   Session,
 } from "./types";
-import {
-  getMinifyParams,
-  getReactNativePackagePath,
-  getSourceMapPaths,
-  runHermesEmitBinaryCommand,
-  SourceMapPaths,
-  takeHermesBaseBytecode,
-} from "./react-native-utils";
-import { isHermesEnabled } from "./utils/hermes-utils";
+import { extractMetadataFromAndroid, parseAabManifest } from "./platforms/android/binary";
+import { getAndroidVersionInfo } from "./platforms/android/gradle";
+import { extractMetadataFromIOS, getIosVersion } from "./platforms/ios/binary";
+import { getIosVersionInfo } from "./platforms/ios/xcode";
+import { BundleOptions, runExpoExportEmbedCommand, runReactNativeBundleCommand } from "./platforms/react-native/bundler";
+import { isHermesEnabled, runHermesEmitBinaryCommand, takeHermesBaseBytecode } from "./platforms/react-native/hermes";
+import { getSourceMapPaths, SourceMapPaths } from "./platforms/react-native/source-maps";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractArchive } from "./utils/file-utils";
-import { getAndroidVersionInfo } from "./utils/gradle-utils";
-import { getIosVersionInfo } from "./utils/ios-utils";
 import {
   isCommandOptionSpecified,
   throwForInvalidEmail,
@@ -54,7 +47,6 @@ import {
 
 import AccountManager = require("./management-sdk");
 import { ReactNativePackageInfo } from "./types/rest-definitions";
-import { getExpoCliPath } from "./expo-utils";
 import {
   deleteConnectionInfoCache,
   deserializeConnectionInfo,
@@ -77,8 +69,6 @@ import {
 const opener = require("opener");
 
 export let sdk: AccountManager;
-export const spawn = childProcess.spawn;
-export const execSync = childProcess.execSync;
 
 let connectionInfo: ILoginConnectionInfo;
 
@@ -534,12 +524,10 @@ async function logout(_command: cli.ICommand): Promise<void> {
   deleteConnectionInfoCache();
 }
 
-interface ProjectVersionInfo {
-  appVersion?: string;
-  buildNumber?: string;
-}
-
-async function getReactNativeProjectVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<ProjectVersionInfo> {
+async function getReactNativeProjectVersionInfo(
+  command: cli.IReleaseReactCommand,
+  projectName: string
+): Promise<cli.ProjectVersionInfo> {
   log(chalk.cyan(`Detecting ${command.platform} app version:\n`));
 
   if (command.platform === "ios") {
@@ -620,83 +608,6 @@ export const release = async (command: cli.IReleaseCommand): Promise<void> => {
   };
 
   return doRelease(command, updateMetadata);
-};
-
-export interface BundleOptions {
-  platform: string;
-  development: boolean;
-  outputFolder: string;
-  bundleName: string;
-  packagerSourceMap: string;
-  extraBundlerOptions: string[];
-}
-
-export const runExpoExportEmbedCommand = async ({
-  platform,
-  development,
-  outputFolder,
-  bundleName,
-  packagerSourceMap,
-  extraBundlerOptions,
-}: BundleOptions) => {
-  const expoBundleArgs: string[] = [];
-  const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
-
-  if (typeof envNodeArgs !== "undefined") {
-    expoBundleArgs.push(...envNodeArgs.trim().split(/\s+/));
-  }
-
-  const expoCliPath = getExpoCliPath();
-
-  expoBundleArgs.push(
-    expoCliPath,
-    "export:embed",
-    "--assets-dest",
-    outputFolder,
-    "--bundle-output",
-    path.join(outputFolder, bundleName),
-    "--dev",
-    String(development),
-    "--platform",
-    platform,
-    "--minify",
-    "false",
-    "--reset-cache"
-  );
-
-  expoBundleArgs.push("--sourcemap-output", packagerSourceMap);
-
-  if (extraBundlerOptions.length > 0) {
-    expoBundleArgs.push(...extraBundlerOptions);
-  }
-
-  log(chalk.cyan('Running "expo export:embed" command:\n'));
-
-  const projectRoot = process.cwd();
-  expoBundleArgs.push(projectRoot);
-
-  log("expoBundleArgs raw:" + JSON.stringify(expoBundleArgs, null, 2));
-
-  const expoBundleProcess = spawn("node", expoBundleArgs);
-  log(`node ${expoBundleArgs.join(" ")}`);
-
-  return new Promise<void>((resolve, reject) => {
-    expoBundleProcess.stdout.on("data", (data: Buffer) => {
-      log(data.toString().trim());
-    });
-
-    expoBundleProcess.stderr.on("data", (data: Buffer) => {
-      console.error(data.toString().trim());
-    });
-
-    expoBundleProcess.on("close", (exitCode: number) => {
-      if (exitCode) {
-        reject(new Error(`"expo export:embed" command exited with code ${exitCode}.`));
-      }
-
-      resolve();
-    });
-  });
 };
 
 const REQUIRED_OUTPUT_DIR_NAME = "CodePush";
@@ -1131,69 +1042,6 @@ async function rollback(command: cli.IRollbackCommand): Promise<void> {
   await sdk.rollback(command.appName, command.deploymentName, command.targetRelease || undefined);
   log('Successfully performed a rollback on the "' + command.deploymentName + '" deployment of the "' + command.appName + '" app.');
 }
-
-export const runReactNativeBundleCommand = async (
-  { platform, development, outputFolder, bundleName, packagerSourceMap, extraBundlerOptions }: BundleOptions,
-  entryFile: string,
-  isHermes: boolean
-) => {
-  const reactNativeBundleArgs: string[] = [];
-  const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
-
-  if (typeof envNodeArgs !== "undefined") {
-    reactNativeBundleArgs.push(...envNodeArgs.trim().split(/\s+/));
-  }
-
-  const reactNativePackagePath = getReactNativePackagePath();
-  const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
-  const cliPath = fs.existsSync(oldCliPath) ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
-
-  reactNativeBundleArgs.push(
-    cliPath,
-    "bundle",
-    "--assets-dest",
-    outputFolder,
-    "--bundle-output",
-    path.join(outputFolder, bundleName),
-    "--dev",
-    String(development),
-    "--entry-file",
-    entryFile,
-    "--platform",
-    platform,
-    "--reset-cache"
-  );
-
-  reactNativeBundleArgs.push("--sourcemap-output", packagerSourceMap);
-
-  reactNativeBundleArgs.push(...getMinifyParams(platform, isHermes));
-
-  if (extraBundlerOptions.length > 0) {
-    reactNativeBundleArgs.push(...extraBundlerOptions);
-  }
-
-  log(chalk.cyan('Running "react-native bundle" command:\n'));
-  const reactNativeBundleProcess = spawn("node", reactNativeBundleArgs);
-  log(`node ${reactNativeBundleArgs.join(" ")}`);
-
-  return new Promise<void>((resolve, reject) => {
-    reactNativeBundleProcess.stdout.on("data", (data: Buffer) => {
-      log(data.toString().trim());
-    });
-
-    reactNativeBundleProcess.stderr.on("data", (data: Buffer) => {
-      console.error(data.toString().trim());
-    });
-
-    reactNativeBundleProcess.on("close", (exitCode: number) => {
-      if (exitCode) {
-        reject(new Error(`"react-native bundle" command exited with code ${exitCode}.`));
-      }
-
-      resolve();
-    });
-  });
-};
 
 async function sessionList(command: cli.ISessionListCommand): Promise<void> {
   throwForInvalidOutputFormat(command.format);

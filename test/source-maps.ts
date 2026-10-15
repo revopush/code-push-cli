@@ -1,11 +1,52 @@
 import { strict as assert } from "assert";
 import * as fs from "fs";
-import { restoreSourceMapMetadata } from "../script/utils/source-map-utils";
+import * as path from "path";
+import { getSourceMapPaths, restoreSourceMapMetadata } from "../script/platforms/react-native/source-maps";
 import { useTempDirectory } from "./helpers/temp-directory";
 
-describe("source-map-utils", () => {
+describe("source-maps", () => {
+  describe("getSourceMapPaths", () => {
+    const iosDirectory = useTempDirectory("source-maps-ios");
+
+    it("names the Android maps like the Gradle plugin", () => {
+      assert.deepEqual(getSourceMapPaths({ platform: "android" }, "index.android.bundle", "out", true), {
+        packager: path.join("out", "index.android.bundle.packager.map"),
+        final: path.join("out", "index.android.bundle.map"),
+      });
+      assert.deepEqual(getSourceMapPaths({ platform: "android" }, "index.android.bundle", "out", false), {
+        packager: path.join("out", "index.android.bundle.map"),
+        final: path.join("out", "index.android.bundle.map"),
+      });
+    });
+
+    it("names the iOS map after the bundle, or SOURCEMAP_FILE from the Podfile's .xcode.env", () => {
+      const podFile = path.join(iosDirectory.path, "Podfile");
+      const defaultMap = path.join("out", "main.jsbundle.map");
+      assert.deepEqual(getSourceMapPaths({ platform: "ios", podFile }, "main.jsbundle", "out", true), {
+        packager: defaultMap,
+        final: defaultMap,
+      });
+
+      iosDirectory.write(".xcode.env", "export SOURCEMAP_FILE=/build/custom.map\n");
+      const customMap = path.join("out", "custom.map");
+      assert.deepEqual(getSourceMapPaths({ platform: "ios", podFile }, "main.jsbundle", "out", true), {
+        packager: customMap,
+        final: customMap,
+      });
+    });
+
+    it("uses a .map sourcemapOutput as is", () => {
+      const map = path.join("out", "app.map");
+
+      assert.deepEqual(getSourceMapPaths({ platform: "android" }, "index.android.bundle", map, true), {
+        packager: map,
+        final: map,
+      });
+    });
+  });
+
   describe("restoreSourceMapMetadata", () => {
-    const tempDirectory = useTempDirectory("source-map-utils");
+    const tempDirectory = useTempDirectory("source-maps");
 
     const writeSourceMap = (fields: Record<string, unknown>) => tempDirectory.write("composed.map", JSON.stringify(fields));
     const readSourceMap = (sourceMap: string): unknown => JSON.parse(fs.readFileSync(sourceMap, "utf8"));

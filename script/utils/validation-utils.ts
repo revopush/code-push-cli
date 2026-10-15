@@ -31,3 +31,7 @@ export function throwForInvalidOutputFormat(format: string): void {
 export function isCommandOptionSpecified(option: any): boolean {
   return option !== undefined && option !== null;
 }
+
+export function isValidVersion(version: string): boolean {
+  return !!semver.valid(version) || /^\d+\.\d+$/.test(version);
+}

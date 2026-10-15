@@ -13,7 +13,7 @@ import * as stream from "stream";
 
 import * as yauzl from "yauzl";
 
-import { listFiles } from "./utils/file-utils";
+import { listFiles } from "./file-utils";
 
 const HASH_ALGORITHM = "sha256";
 

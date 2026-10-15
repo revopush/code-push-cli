@@ -1,4 +1,5 @@
 import { strict as assert } from "assert";
+import { ChildProcess } from "child_process";
 
 export function argValue(args: string[], flag: string): string {
   const index = args.indexOf(flag);
@@ -7,7 +8,7 @@ export function argValue(args: string[], flag: string): string {
 }
 
 /** Stands in for the bundler's child process, which exits successfully right away */
-export function fakeBundlerProcess(args: unknown[]) {
+export function fakeBundlerProcess(args: unknown[]): ChildProcess {
   assert.ok(
     args.every((arg) => typeof arg === "string"),
     `Bundler arguments must be strings: ${JSON.stringify(args)}`
@@ -20,5 +21,5 @@ export function fakeBundlerProcess(args: unknown[]) {
         callback(0);
       }
     },
-  };
+  } as unknown as ChildProcess;
 }
