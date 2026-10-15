@@ -6,9 +6,11 @@
   "scripts": {
     "start": "node ./bin/script/cli.js",
     "build": "tsc",
+    "pretest": "node -e \"require('fs').rmSync('bin', { recursive: true, force: true })\"",
+    "test": "tsc && node -e \"require('fs').cpSync('test/resources', 'bin/test/resources', { recursive: true })\" && mocha",
     "prettier": "prettier --write \"./**/*.ts\"",
-    "lint": "npx eslint ./script/**/*.ts",
-    "lint:fix": "npx eslint ./script/**/*.ts --fix"
+    "lint": "eslint \"script/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"script/**/*.ts\" \"test/**/*.ts\" --fix"
   },
   "bin": {
     "revopush": "./bin/script/cli.js"
@@ -63,7 +65,6 @@
     "node": ">=20.19.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.14",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.3.1",
     "@types/q": "^1.5.8",
@@ -72,13 +73,10 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.45.0",
-    "mkdirp": "^3.0.1",
     "mocha": "^12.0.1",
     "prettier": "^2.8.8",
     "sinon": "15.1.2",
     "superagent-mock": "^4.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.1.3",
-    "which": "^3.0.1"
+    "typescript": "^5.1.3"
   }
 }

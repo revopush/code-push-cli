@@ -1,11 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import * as assert from "assert";
-import * as fs from "fs";
-import * as os from "os";
+import { strict as assert } from "assert";
 import * as path from "path";
-import * as Q from "q";
 import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
 import * as cli from "../script/types/cli";
@@ -15,129 +12,61 @@ import {
   MAX_BUNDLE_SIZE_BYTES,
   SENTRY_SOURCE_MAP_DOCS_URL,
 } from "../script/utils/release-size-utils";
+import { assertIncludes } from "./helpers/assert";
+import { argValue, fakeBundlerProcess } from "./helpers/bundler";
+import { useTempDirectory } from "./helpers/temp-directory";
 
-describe("Release size flow", () => {
-  let assetSize: number;
-  let bundleSize: number;
-  let includeSourceMap: boolean;
-  let originalCwd: string;
-  let outputDirectory: string;
-  let projectDirectory: string;
-  let sandbox: sinon.SinonSandbox;
+interface BundlerOutput {
+  bundleSize?: number;
+  assetSize?: number;
+  /** Also emit main.jsbundle.map among the assets */
+  sourceMap?: boolean;
+}
+
+// End-to-end size checks of release-react / release-expo, with the bundler and the server stubbed out
+describe("command-executor release size checks", () => {
+  const project = useTempDirectory("release-size-flow", { chdir: true });
+  // releaseReact/releaseExpo reject any other --outputDir basename
+  const outputDirectory = () => path.join(project.path, "CodePush");
+
   let sdkRelease: sinon.SinonStub;
-  let warning: sinon.SinonStub;
+  let warn: sinon.SinonStub;
 
   beforeEach(() => {
-    assetSize = 1;
-    bundleSize = 1;
-    includeSourceMap = false;
-    originalCwd = process.cwd();
-    projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "revopush-release-flow-"));
-    // Must be named "CodePush": releaseReact/releaseExpo reject any other --outputDir basename.
-    outputDirectory = path.join(projectDirectory, "CodePush");
-    createProject(projectDirectory);
-    process.chdir(projectDirectory);
+    project.write("package.json", JSON.stringify({ name: "TestApp", dependencies: { expo: "1.0.0", "react-native": "0.60.0" } }));
+    project.write("index.js", "module.exports = {};\n");
+    project.write("node_modules/react-native/package.json", JSON.stringify({ version: "0.60.0" }));
+    project.write("node_modules/@expo/cli/index.js", "module.exports = {};\n");
 
-    sandbox = sinon.createSandbox();
-    sdkRelease = sandbox.stub().returns(Q(<void>null));
-    sandbox.stub(cmdexec, "sdk").value({
-      getDeployment: sandbox.stub().returns(Q({})),
-      isAuthenticated: sandbox.stub().returns(Q(true)),
+    sdkRelease = sinon.stub().resolves();
+    sinon.stub(cmdexec, "sdk").value({
+      getDeployment: sinon.stub().resolves({}),
+      isAuthenticated: sinon.stub().resolves(true),
       release: sdkRelease,
     });
-    sandbox.stub(cmdexec, "log");
-    sandbox.stub(console, "log");
-    sandbox.stub(cmdexec, "spawn").callsFake((_command: string, args: string[]) => {
-      const bundleOutputIndex = args.indexOf("--bundle-output");
-      const assetsDestinationIndex = args.indexOf("--assets-dest");
-      const bundlePath = args[bundleOutputIndex + 1];
-      const assetsDestination = args[assetsDestinationIndex + 1];
+    sinon.stub(cmdexec, "log");
+    sinon.stub(console, "log");
+    warn = sinon.stub(console, "warn");
+  });
 
-      createSizedFile(bundlePath, bundleSize);
-      createSizedFile(path.join(assetsDestination, "assets", "hero.png"), assetSize);
-      if (includeSourceMap) {
-        createSizedFile(path.join(assetsDestination, "assets", "main.jsbundle.map"), 1);
+  afterEach(() => sinon.restore());
+
+  function stubBundler({ bundleSize = 1, assetSize = 1, sourceMap = false }: BundlerOutput = {}): void {
+    sinon.stub(cmdexec, "spawn").callsFake((_command: string, args: string[]) => {
+      const bundlePath = argValue(args, "--bundle-output");
+      const assetsDirectory = path.join(argValue(args, "--assets-dest"), "assets");
+
+      project.writeSized(bundlePath, bundleSize);
+      project.writeSized(path.join(assetsDirectory, "hero.png"), assetSize);
+      if (sourceMap) {
+        project.writeSized(path.join(assetsDirectory, "main.jsbundle.map"), 1);
       }
 
-      return <any>{
-        stdout: { on: () => {} },
-        stderr: { on: () => {} },
-        on: (event: string, callback: (exitCode: number) => void) => {
-          if (event === "close") {
-            callback(0);
-          }
-        },
-      };
+      return fakeBundlerProcess(args);
     });
-    warning = sandbox.stub(console, "warn");
-  });
+  }
 
-  afterEach(() => {
-    sandbox.restore();
-    process.chdir(originalCwd);
-    fs.rmSync(projectDirectory, { recursive: true, force: true });
-  });
-
-  it("blocks release-react before upload when an asset is oversized", async () => {
-    assetSize = MAX_ASSET_SIZE_BYTES + 1;
-    includeSourceMap = true;
-
-    await assert.rejects(
-      Promise.resolve(cmdexec.releaseReact(createCommand(cli.CommandType.releaseReact, false))),
-      (error: Error) => error.message.includes("--force") && error.message.includes(ASSET_OPTIMIZATION_DOCS_URL)
-    );
-
-    sinon.assert.notCalled(sdkRelease);
-    sinon.assert.calledOnce(warning);
-    assert.ok(warning.firstCall.args[0].includes("main.jsbundle.map"));
-    assert.ok(warning.firstCall.args[0].includes(SENTRY_SOURCE_MAP_DOCS_URL));
-  });
-
-  it("warns about source maps without blocking release-react", async () => {
-    includeSourceMap = true;
-
-    await Promise.resolve(cmdexec.releaseReact(createCommand(cli.CommandType.releaseReact, false)));
-
-    sinon.assert.calledOnce(sdkRelease);
-    sinon.assert.calledOnce(warning);
-    assert.ok(warning.firstCall.args[0].includes("main.jsbundle.map"));
-    assert.ok(warning.firstCall.args[0].includes(SENTRY_SOURCE_MAP_DOCS_URL));
-  });
-
-  it("uploads release-expo with force and prints warnings after upload succeeds", async () => {
-    const events: string[] = [];
-    assetSize = MAX_ASSET_SIZE_BYTES + 1;
-    bundleSize = MAX_BUNDLE_SIZE_BYTES + 1;
-    sdkRelease.callsFake(() =>
-      Q(<void>null).then(() => {
-        events.push("upload-completed");
-      })
-    );
-    warning.callsFake(() => {
-      events.push("warning");
-    });
-
-    await Promise.resolve(cmdexec.releaseExpo(createCommand(cli.CommandType.releaseExpo, true)));
-
-    sinon.assert.calledOnce(sdkRelease);
-    sinon.assert.calledOnce(warning);
-    assert.deepEqual(events, ["upload-completed", "warning"]);
-    assert.ok(warning.firstCall.args[0].includes("hero.png"));
-    assert.ok(warning.firstCall.args[0].includes("diff updates"));
-  });
-
-  it("does not print deferred warnings when upload fails", async () => {
-    assetSize = MAX_ASSET_SIZE_BYTES + 1;
-    bundleSize = MAX_BUNDLE_SIZE_BYTES + 1;
-    sdkRelease.returns(Q.reject(new Error("Upload failed")));
-
-    await assert.rejects(Promise.resolve(cmdexec.releaseExpo(createCommand(cli.CommandType.releaseExpo, true))), /Upload failed/);
-
-    sinon.assert.calledOnce(sdkRelease);
-    sinon.assert.notCalled(warning);
-  });
-
-  function createCommand(type: cli.CommandType, force: boolean): cli.IReleaseReactCommand {
+  function releaseReactCommand(type: cli.CommandType, overrides: Partial<cli.IReleaseReactCommand> = {}): cli.IReleaseReactCommand {
     return {
       type,
       appName: "TestApp",
@@ -150,30 +79,70 @@ describe("Release size flow", () => {
       entryFile: "index.js",
       extraBundlerOptions: [],
       extraHermesFlags: [],
-      force,
+      force: false,
       mandatory: false,
-      outputDir: outputDirectory,
+      outputDir: outputDirectory(),
       platform: "ios",
       rollout: 100,
-      sourcemapOutput: path.join(projectDirectory, "main.jsbundle.map"),
+      sourcemapOutput: path.join(project.path, "main.jsbundle.map"),
+      ...overrides,
     };
   }
 
-  function createProject(directory: string): void {
-    fs.writeFileSync(
-      path.join(directory, "package.json"),
-      JSON.stringify({ name: "TestApp", dependencies: { expo: "1.0.0", "react-native": "0.60.0" } })
-    );
-    fs.writeFileSync(path.join(directory, "index.js"), "module.exports = {};\n");
-    fs.mkdirSync(path.join(directory, "node_modules", "react-native"), { recursive: true });
-    fs.writeFileSync(path.join(directory, "node_modules", "react-native", "package.json"), JSON.stringify({ version: "0.60.0" }));
-    fs.mkdirSync(path.join(directory, "node_modules", "@expo", "cli"), { recursive: true });
-    fs.writeFileSync(path.join(directory, "node_modules", "@expo", "cli", "index.js"), "module.exports = {};\n");
+  function assertWarnedAboutSourceMap(): void {
+    sinon.assert.calledOnce(warn);
+    assert.match(warn.firstCall.args[0], /main\.jsbundle\.map/);
+    assertIncludes(warn.firstCall.args[0], SENTRY_SOURCE_MAP_DOCS_URL);
   }
 
-  function createSizedFile(filePath: string, size: number): void {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.closeSync(fs.openSync(filePath, "w"));
-    fs.truncateSync(filePath, size);
-  }
+  it("blocks release-react before upload when an asset is oversized", async () => {
+    stubBundler({ assetSize: MAX_ASSET_SIZE_BYTES + 1, sourceMap: true });
+
+    await assert.rejects(
+      async () => cmdexec.releaseReact(releaseReactCommand(cli.CommandType.releaseReact)),
+      (error: Error) => error.message.includes("--force") && error.message.includes(ASSET_OPTIMIZATION_DOCS_URL)
+    );
+
+    sinon.assert.notCalled(sdkRelease);
+    assertWarnedAboutSourceMap();
+  });
+
+  it("warns about source maps without blocking release-react", async () => {
+    stubBundler({ sourceMap: true });
+
+    await cmdexec.releaseReact(releaseReactCommand(cli.CommandType.releaseReact));
+
+    sinon.assert.calledOnce(sdkRelease);
+    assertWarnedAboutSourceMap();
+  });
+
+  it("uploads release-expo with force and prints warnings after upload succeeds", async () => {
+    stubBundler({ assetSize: MAX_ASSET_SIZE_BYTES + 1, bundleSize: MAX_BUNDLE_SIZE_BYTES + 1 });
+    const events: string[] = [];
+    sdkRelease.callsFake(async () => {
+      events.push("upload-completed");
+    });
+    warn.callsFake(() => events.push("warning"));
+
+    await cmdexec.releaseExpo(releaseReactCommand(cli.CommandType.releaseExpo, { force: true }));
+
+    sinon.assert.calledOnce(sdkRelease);
+    sinon.assert.calledOnce(warn);
+    assert.deepEqual(events, ["upload-completed", "warning"]);
+    assert.match(warn.firstCall.args[0], /hero\.png/);
+    assert.match(warn.firstCall.args[0], /diff updates/);
+  });
+
+  it("does not print deferred warnings when upload fails", async () => {
+    stubBundler({ assetSize: MAX_ASSET_SIZE_BYTES + 1, bundleSize: MAX_BUNDLE_SIZE_BYTES + 1 });
+    sdkRelease.rejects(new Error("Upload failed"));
+
+    await assert.rejects(
+      async () => cmdexec.releaseExpo(releaseReactCommand(cli.CommandType.releaseExpo, { force: true })),
+      /Upload failed/
+    );
+
+    sinon.assert.calledOnce(sdkRelease);
+    sinon.assert.notCalled(warn);
+  });
 });

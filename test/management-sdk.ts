@@ -1,447 +1,277 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import * as assert from "assert";
-import * as Q from "q";
+import { strict as assert } from "assert";
+import superagent = require("superagent");
+import installSuperagentMock = require("superagent-mock");
 
 import AccountManager = require("../script/management-sdk");
 
-var request = require("superagent");
-
-var manager: AccountManager;
-describe("Management SDK", () => {
-  beforeEach(() => {
-    manager = new AccountManager(/*accessKey=*/ "dummyAccessKey", /*customHeaders=*/ null, /*serverUrl=*/ "http://localhost");
-  });
-
-  after(() => {
-    // Prevent an exception that occurs due to how superagent-mock overwrites methods
-    request.Request.prototype._callback = function () {};
-  });
-
-  it("methods reject the promise with status code info when an error occurs", (done: Mocha.Done) => {
-    mockReturn("Text", 404);
-
-    var methodsWithErrorHandling: any[] = [
-      manager.addApp.bind(manager, "appName"),
-      manager.getApp.bind(manager, "appName"),
-      manager.renameApp.bind(manager, "appName", {}),
-      manager.removeApp.bind(manager, "appName"),
-      manager.transferApp.bind(manager, "appName", "email1"),
-
-      manager.addDeployment.bind(manager, "appName", "deploymentName"),
-      manager.getDeployment.bind(manager, "appName", "deploymentName"),
-      manager.getDeployments.bind(manager, "appName"),
-      manager.renameDeployment.bind(manager, "appName", "deploymentName", {
-        name: "newDeploymentName",
-      }),
-      manager.removeDeployment.bind(manager, "appName", "deploymentName"),
-
-      manager.addCollaborator.bind(manager, "appName", "email1"),
-      manager.getCollaborators.bind(manager, "appName"),
-      manager.removeCollaborator.bind(manager, "appName", "email1"),
-
-      manager.patchRelease.bind(manager, "appName", "deploymentName", "label", {
-        description: "newDescription",
-      }),
-      manager.promote.bind(manager, "appName", "deploymentName", "newDeploymentName", { description: "newDescription" }),
-      manager.rollback.bind(manager, "appName", "deploymentName", "targetReleaseLabel"),
-    ];
-
-    var result = Q<void>(null);
-    methodsWithErrorHandling.forEach(function (f) {
-      result = result.then(() => {
-        return testErrors(f);
-      });
-    });
-
-    result.done(() => {
-      done();
-    });
-
-    // Test that the proper error code and text is passed through on a server error
-    function testErrors(method: any): Q.Promise<void> {
-      return Q.Promise<void>((resolve: any, reject: any, notify: any) => {
-        method().done(
-          () => {
-            assert.fail("Should have thrown an error");
-            reject();
-          },
-          (error: any) => {
-            assert.equal(error.message, "Text");
-            assert(error.statusCode);
-            resolve();
-          }
-        );
-      });
-    }
-  });
-
-  it("isAuthenticated handles successful auth", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ authenticated: true }), 200, {});
-    manager.isAuthenticated().done((authenticated: boolean) => {
-      assert(authenticated, "Should be authenticated");
-      done();
-    });
-  });
-
-  it("isAuthenticated handles unsuccessful auth", (done: Mocha.Done) => {
-    mockReturn("Unauthorized", 401, {});
-    manager.isAuthenticated().done((authenticated: boolean) => {
-      assert(!authenticated, "Should not be authenticated");
-      done();
-    });
-  });
-
-  it("isAuthenticated handles unsuccessful auth with promise rejection", (done: Mocha.Done) => {
-    mockReturn("Unauthorized", 401, {});
-
-    // use optional parameter to ask for rejection of the promise if not authenticated
-    manager.isAuthenticated(true).done(
-      (authenticated: boolean) => {
-        assert.fail("isAuthenticated should have rejected the promise");
-        done();
-      },
-      (err) => {
-        assert.equal(err.message, "Unauthorized", "Error message should be 'Unauthorized'");
-        done();
-      }
-    );
-  });
-
-  it("isAuthenticated handles unexpected status codes", (done: Mocha.Done) => {
-    mockReturn("Not Found", 404, {});
-    manager.isAuthenticated().done(
-      (authenticated: boolean) => {
-        assert.fail("isAuthenticated should have rejected the promise");
-        done();
-      },
-      (err) => {
-        assert.equal(err.message, "Not Found", "Error message should be 'Not Found'");
-        done();
-      }
-    );
-  });
-
-  it("addApp handles successful response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ success: true }), 201, {
-      location: "/appName",
-    });
-    manager.addApp("appName").done((obj) => {
-      assert.ok(obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("addApp handles error response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ success: false }), 404, {});
-    manager.addApp("appName").done(
-      (obj) => {
-        throw new Error("Call should not complete successfully");
-      },
-      (error: Error) => done()
-    );
-  });
-
-  it("getApp handles JSON response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ app: {} }), 200, {});
-
-    manager.getApp("appName").done((obj: any) => {
-      assert.ok(obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("updateApp handles success response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ apps: [] }), 200, {});
-
-    manager.renameApp("appName", "newAppName").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("removeApp handles success response", (done: Mocha.Done) => {
-    mockReturn("", 200, {});
-
-    manager.removeApp("appName").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("transferApp handles successful response", (done: Mocha.Done) => {
-    mockReturn("", 201);
-    manager.transferApp("appName", "email1").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("addDeployment handles success response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ deployment: { name: "name", key: "key" } }), 201, { location: "/deploymentName" });
-
-    manager.addDeployment("appName", "deploymentName").done((obj: any) => {
-      assert.ok(obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("getDeployment handles JSON response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ deployment: {} }), 200, {});
-
-    manager.getDeployment("appName", "deploymentName").done((obj: any) => {
-      assert.ok(obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("getBaseBundle handles JSON response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ basebundle: { bundleBlobUrl: "https://test.test/release.zip" } }), 200, {});
-
-    manager.getBaseRelease("appName", "deploymentName", "1.2.3").done((obj: any) => {
-      assert.ok(obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("getDeployments handles JSON response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ deployments: [] }), 200, {});
-
-    manager.getDeployments("appName").done((obj: any) => {
-      assert.ok(obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("renameDeployment handles success response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ apps: [] }), 200, {});
-
-    manager.renameDeployment("appName", "deploymentName", "newDeploymentName").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("removeDeployment handles success response", (done: Mocha.Done) => {
-    mockReturn("", 200, {});
-
-    manager.removeDeployment("appName", "deploymentName").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("getDeploymentHistory handles success response with no packages", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ history: [] }), 200);
-
-    manager.getDeploymentHistory("appName", "deploymentName").done((obj: any) => {
-      assert.ok(obj);
-      assert.equal(obj.length, 0);
-      done();
-    }, rejectHandler);
-  });
-
-  it("getDeploymentHistory handles success response with two packages", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ history: [{ label: "v1" }, { label: "v2" }] }), 200);
-
-    manager.getDeploymentHistory("appName", "deploymentName").done((obj: any) => {
-      assert.ok(obj);
-      assert.equal(obj.length, 2);
-      assert.equal(obj[0].label, "v1");
-      assert.equal(obj[1].label, "v2");
-      done();
-    }, rejectHandler);
-  });
-
-  it("getDeploymentHistory handles error response", (done: Mocha.Done) => {
-    mockReturn("", 404);
-
-    manager.getDeploymentHistory("appName", "deploymentName").done(
-      (obj: any) => {
-        throw new Error("Call should not complete successfully");
-      },
-      (error: Error) => done()
-    );
-  });
-
-  it("clearDeploymentHistory handles success response", (done: Mocha.Done) => {
-    mockReturn("", 204);
-
-    manager.clearDeploymentHistory("appName", "deploymentName").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("clearDeploymentHistory handles error response", (done: Mocha.Done) => {
-    mockReturn("", 404);
-
-    manager.clearDeploymentHistory("appName", "deploymentName").done(
-      (obj: any) => {
-        throw new Error("Call should not complete successfully");
-      },
-      (error: Error) => done()
-    );
-  });
-
-  it("addCollaborator handles successful response", (done: Mocha.Done) => {
-    mockReturn("", 201, { location: "/collaborators" });
-    manager.addCollaborator("appName", "email1").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("addCollaborator handles error response", (done: Mocha.Done) => {
-    mockReturn("", 404, {});
-    manager.addCollaborator("appName", "email1").done(
-      (obj) => {
-        throw new Error("Call should not complete successfully");
-      },
-      (error: Error) => done()
-    );
-  });
-
-  it("getCollaborators handles success response with no collaborators", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ collaborators: {} }), 200);
-
-    manager.getCollaborators("appName").done((obj: any) => {
-      assert.ok(obj);
-      assert.equal(Object.keys(obj).length, 0);
-      done();
-    }, rejectHandler);
-  });
-
-  it("getCollaborators handles success response with multiple collaborators", (done: Mocha.Done) => {
-    mockReturn(
-      JSON.stringify({
-        collaborators: {
-          email1: { permission: "Owner", isCurrentAccount: true },
-          email2: { permission: "Collaborator", isCurrentAccount: false },
-        },
-      }),
-      200
-    );
-
-    manager.getCollaborators("appName").done((obj: any) => {
-      assert.ok(obj);
-      assert.equal(obj["email1"].permission, "Owner");
-      assert.equal(obj["email2"].permission, "Collaborator");
-      done();
-    }, rejectHandler);
-  });
-
-  it("removeCollaborator handles success response", (done: Mocha.Done) => {
-    mockReturn("", 200, {});
-
-    manager.removeCollaborator("appName", "email1").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("patchRelease handles success response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ package: { description: "newDescription" } }), 200);
-
-    manager
-      .patchRelease("appName", "deploymentName", "label", {
-        description: "newDescription",
-      })
-      .done((obj: any) => {
-        assert.ok(!obj);
-        done();
-      }, rejectHandler);
-  });
-
-  it("patchRelease handles error response", (done: Mocha.Done) => {
-    mockReturn("", 400);
-
-    manager.patchRelease("appName", "deploymentName", "label", {}).done(
-      (obj: any) => {
-        throw new Error("Call should not complete successfully");
-      },
-      (error: Error) => done()
-    );
-  });
-
-  it("promote handles success response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ package: { description: "newDescription" } }), 200);
-
-    manager
-      .promote("appName", "deploymentName", "newDeploymentName", {
-        description: "newDescription",
-      })
-      .done((obj: any) => {
-        assert.ok(!obj);
-        done();
-      }, rejectHandler);
-  });
-
-  it("promote handles error response", (done: Mocha.Done) => {
-    mockReturn("", 400);
-
-    manager
-      .promote("appName", "deploymentName", "newDeploymentName", {
-        rollout: 123,
-      })
-      .done(
-        (obj: any) => {
-          throw new Error("Call should not complete successfully");
-        },
-        (error: Error) => done()
-      );
-  });
-
-  it("rollback handles success response", (done: Mocha.Done) => {
-    mockReturn(JSON.stringify({ package: { label: "v1" } }), 200);
-
-    manager.rollback("appName", "deploymentName", "v1").done((obj: any) => {
-      assert.ok(!obj);
-      done();
-    }, rejectHandler);
-  });
-
-  it("rollback handles error response", (done: Mocha.Done) => {
-    mockReturn("", 400);
-
-    manager.rollback("appName", "deploymentName", "v1").done(
-      (obj: any) => {
-        throw new Error("Call should not complete successfully");
-      },
-      (error: Error) => done()
-    );
-  });
-});
-
-// Helper method that is used everywhere that an assert.fail() is needed in a promise handler
-function rejectHandler(val: any): void {
-  assert.fail();
+interface MockedResponse {
+  text: string;
+  status: number;
+  ok: boolean;
+  header: Record<string, string>;
+  headers: Record<string, string>;
 }
 
-// Wrapper for superagent-mock that abstracts away information not needed for SDK tests
-function mockReturn(bodyText: string, statusCode: number, header = {}): void {
-  require("superagent-mock")(request, [
+interface SuperagentMock {
+  unset(): void;
+}
+
+const serverUrl = "http://localhost";
+
+let superagentMock: SuperagentMock | undefined;
+
+/**
+ * Answers every request with the given status and body, and returns the request bodies it receives.
+ * Like a real superagent error, a non-2xx status fails the request with the body as its message.
+ */
+function mockServerResponse(status: number, body = "", header: Record<string, string> = {}): unknown[] {
+  const requestBodies: unknown[] = [];
+  superagentMock?.unset();
+  superagentMock = installSuperagentMock(superagent, [
     {
-      pattern: "http://localhost/(\\w+)/?",
-      fixtures: function (match: any, params: any): any {
-        var isOk = statusCode >= 200 && statusCode < 300;
-        if (!isOk) {
-          var err: any = new Error(bodyText);
-          err.status = statusCode;
-          throw err;
+      pattern: `${serverUrl}/(\\w+)/?`,
+      fixtures: (_match: RegExpExecArray, requestBody: unknown): MockedResponse => {
+        requestBodies.push(requestBody);
+        const ok = status >= 200 && status < 300;
+        if (!ok) {
+          throw Object.assign(new Error(body), { status });
         }
-        return {
-          text: bodyText,
-          status: statusCode,
-          ok: isOk,
-          header: header,
-          headers: {},
-        };
+        return { text: body, status, ok, header, headers: {} };
       },
-      callback: function (match: any, data: any): any {
-        return data;
-      },
+      callback: (_match: RegExpExecArray, response: MockedResponse): MockedResponse => response,
     },
   ]);
+  return requestBodies;
 }
+
+// The SDK returns Q promises, so tests pass `async () => ...` to assert.rejects to get a native promise
+type SdkCall = (manager: AccountManager) => PromiseLike<unknown>;
+
+const callsThatPropagateServerErrors: Array<[name: string, call: SdkCall]> = [
+  ["addApp", (manager) => manager.addApp("appName")],
+  ["getApp", (manager) => manager.getApp("appName")],
+  ["renameApp", (manager) => manager.renameApp("appName", "newAppName")],
+  ["removeApp", (manager) => manager.removeApp("appName")],
+  ["transferApp", (manager) => manager.transferApp("appName", "email1")],
+  ["addDeployment", (manager) => manager.addDeployment("appName", "deploymentName")],
+  ["getDeployment", (manager) => manager.getDeployment("appName", "deploymentName")],
+  ["getDeployments", (manager) => manager.getDeployments("appName")],
+  ["renameDeployment", (manager) => manager.renameDeployment("appName", "deploymentName", "newDeploymentName")],
+  ["removeDeployment", (manager) => manager.removeDeployment("appName", "deploymentName")],
+  ["getDeploymentHistory", (manager) => manager.getDeploymentHistory("appName", "deploymentName")],
+  ["clearDeploymentHistory", (manager) => manager.clearDeploymentHistory("appName", "deploymentName")],
+  ["addCollaborator", (manager) => manager.addCollaborator("appName", "email1")],
+  ["getCollaborators", (manager) => manager.getCollaborators("appName")],
+  ["removeCollaborator", (manager) => manager.removeCollaborator("appName", "email1")],
+  ["patchRelease", (manager) => manager.patchRelease("appName", "deploymentName", "label", { description: "newDescription" })],
+  ["promote", (manager) => manager.promote("appName", "deploymentName", "newDeploymentName", { description: "newDescription" })],
+  ["rollback", (manager) => manager.rollback("appName", "deploymentName", "targetReleaseLabel")],
+];
+
+describe("Management SDK", () => {
+  let manager: AccountManager;
+
+  beforeEach(() => {
+    manager = new AccountManager("dummyAccessKey", /*customHeaders=*/ null, serverUrl);
+  });
+
+  afterEach(() => {
+    superagentMock?.unset();
+    superagentMock = undefined;
+  });
+
+  describe("server errors", () => {
+    for (const [name, call] of callsThatPropagateServerErrors) {
+      it(`${name} rejects with the server's message and status code`, async () => {
+        mockServerResponse(404, "Text");
+
+        await assert.rejects(async () => call(manager), { message: "Text", statusCode: 404 });
+      });
+    }
+
+    it("rejects on a 400 response", async () => {
+      mockServerResponse(400);
+
+      await assert.rejects(async () => manager.rollback("appName", "deploymentName", "v1"), { statusCode: 400 });
+    });
+  });
+
+  describe("isAuthenticated", () => {
+    it("resolves true when the server accepts the access key", async () => {
+      mockServerResponse(200, JSON.stringify({ authenticated: true }));
+
+      assert.equal(await manager.isAuthenticated(), true);
+    });
+
+    it("resolves false when the server rejects the access key", async () => {
+      mockServerResponse(401, "Unauthorized");
+
+      assert.equal(await manager.isAuthenticated(), false);
+    });
+
+    it("rejects when unauthorized if asked to", async () => {
+      mockServerResponse(401, "Unauthorized");
+
+      await assert.rejects(async () => manager.isAuthenticated(/*throwIfUnauthorized=*/ true), { message: "Unauthorized" });
+    });
+
+    it("rejects on an unexpected status code", async () => {
+      mockServerResponse(404, "Not Found");
+
+      await assert.rejects(async () => manager.isAuthenticated(), { message: "Not Found" });
+    });
+  });
+
+  describe("apps", () => {
+    it("addApp resolves with the new app", async () => {
+      mockServerResponse(201, JSON.stringify({ success: true }), { location: "/appName" });
+
+      assert.deepEqual(await manager.addApp("appName"), { name: "appName" });
+    });
+
+    it("getApp resolves with the app from the response", async () => {
+      mockServerResponse(200, JSON.stringify({ app: { name: "appName" } }));
+
+      assert.deepEqual(await manager.getApp("appName"), { name: "appName" });
+    });
+
+    it("renameApp resolves with nothing", async () => {
+      mockServerResponse(200, JSON.stringify({ apps: [] }));
+
+      assert.equal(await manager.renameApp("appName", "newAppName"), null);
+    });
+
+    it("removeApp resolves with nothing", async () => {
+      mockServerResponse(200);
+
+      assert.equal(await manager.removeApp("appName"), null);
+    });
+
+    it("transferApp resolves with nothing", async () => {
+      mockServerResponse(201);
+
+      assert.equal(await manager.transferApp("appName", "email1"), null);
+    });
+  });
+
+  describe("deployments", () => {
+    it("addDeployment resolves with the deployment from the response", async () => {
+      const deployment = { name: "name", key: "key" };
+      mockServerResponse(201, JSON.stringify({ deployment }), { location: "/deploymentName" });
+
+      assert.deepEqual(await manager.addDeployment("appName", "deploymentName"), deployment);
+    });
+
+    it("getDeployment resolves with the deployment from the response", async () => {
+      mockServerResponse(200, JSON.stringify({ deployment: { name: "deploymentName" } }));
+
+      assert.deepEqual(await manager.getDeployment("appName", "deploymentName"), { name: "deploymentName" });
+    });
+
+    it("getBaseRelease resolves with the base bundle from the response", async () => {
+      const basebundle = { bundleBlobUrl: "https://test.test/release.zip" };
+      mockServerResponse(200, JSON.stringify({ basebundle }));
+
+      assert.deepEqual(await manager.getBaseRelease("appName", "deploymentName", "1.2.3"), basebundle);
+    });
+
+    it("getDeployments resolves with the deployments from the response", async () => {
+      mockServerResponse(200, JSON.stringify({ deployments: [] }));
+
+      assert.deepEqual(await manager.getDeployments("appName"), []);
+    });
+
+    it("renameDeployment resolves with nothing", async () => {
+      mockServerResponse(200, JSON.stringify({ apps: [] }));
+
+      assert.equal(await manager.renameDeployment("appName", "deploymentName", "newDeploymentName"), null);
+    });
+
+    it("removeDeployment resolves with nothing", async () => {
+      mockServerResponse(200);
+
+      assert.equal(await manager.removeDeployment("appName", "deploymentName"), null);
+    });
+
+    it("getDeploymentHistory resolves with an empty history", async () => {
+      mockServerResponse(200, JSON.stringify({ history: [] }));
+
+      assert.deepEqual(await manager.getDeploymentHistory("appName", "deploymentName"), []);
+    });
+
+    it("getDeploymentHistory resolves with the releases in order", async () => {
+      mockServerResponse(200, JSON.stringify({ history: [{ label: "v1" }, { label: "v2" }] }));
+
+      assert.deepEqual(await manager.getDeploymentHistory("appName", "deploymentName"), [{ label: "v1" }, { label: "v2" }]);
+    });
+
+    it("clearDeploymentHistory resolves with nothing", async () => {
+      mockServerResponse(204);
+
+      assert.equal(await manager.clearDeploymentHistory("appName", "deploymentName"), null);
+    });
+  });
+
+  describe("collaborators", () => {
+    it("addCollaborator resolves with nothing", async () => {
+      mockServerResponse(201, "", { location: "/collaborators" });
+
+      assert.equal(await manager.addCollaborator("appName", "email1"), null);
+    });
+
+    it("getCollaborators resolves with no collaborators", async () => {
+      mockServerResponse(200, JSON.stringify({ collaborators: {} }));
+
+      assert.deepEqual(await manager.getCollaborators("appName"), {});
+    });
+
+    it("getCollaborators resolves with each collaborator's permission", async () => {
+      const collaborators = {
+        email1: { permission: "Owner", isCurrentAccount: true },
+        email2: { permission: "Collaborator", isCurrentAccount: false },
+      };
+      mockServerResponse(200, JSON.stringify({ collaborators }));
+
+      assert.deepEqual(await manager.getCollaborators("appName"), collaborators);
+    });
+
+    it("removeCollaborator resolves with nothing", async () => {
+      mockServerResponse(200);
+
+      assert.equal(await manager.removeCollaborator("appName", "email1"), null);
+    });
+  });
+
+  describe("releases", () => {
+    it("patchRelease resolves with nothing", async () => {
+      mockServerResponse(200, JSON.stringify({ package: { description: "newDescription" } }));
+
+      assert.equal(await manager.patchRelease("appName", "deploymentName", "label", { description: "newDescription" }), null);
+    });
+
+    it("patchRelease sends the label without changing the caller's metadata", async () => {
+      const requestBodies = mockServerResponse(200);
+      const metadata = { description: "newDescription" };
+
+      await manager.patchRelease("appName", "deploymentName", "v1", metadata);
+
+      assert.deepEqual(requestBodies, [JSON.stringify({ packageInfo: { description: "newDescription", label: "v1" } })]);
+      assert.deepEqual(metadata, { description: "newDescription" });
+    });
+
+    it("promote resolves with nothing", async () => {
+      mockServerResponse(200, JSON.stringify({ package: { description: "newDescription" } }));
+
+      assert.equal(await manager.promote("appName", "deploymentName", "newDeploymentName", { description: "newDescription" }), null);
+    });
+
+    it("rollback resolves with nothing", async () => {
+      mockServerResponse(200, JSON.stringify({ package: { label: "v1" } }));
+
+      assert.equal(await manager.rollback("appName", "deploymentName", "v1"), null);
+    });
+  });
+});

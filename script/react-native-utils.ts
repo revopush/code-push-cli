@@ -146,15 +146,15 @@ function runCommand(name: string, command: string, args: string[]): Promise<void
   });
 }
 
-export function getMinifyParams(platform: string, isHermes: boolean): (string | boolean)[] {
+export function getMinifyParams(platform: string, isHermes: boolean): string[] {
   switch (platform) {
     case "android": {
       // The RN Gradle plugin minifies unless Hermes is enabled
-      return ["--minify", !isHermes];
+      return ["--minify", String(!isHermes)];
     }
     case "ios": {
       // react-native-xcode.sh passes "--minify false" only with Hermes
-      return isHermes ? ["--minify", false] : [];
+      return isHermes ? ["--minify", "false"] : [];
     }
     default:
       throw new Error('Platform must be either "android" or "ios".');

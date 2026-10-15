@@ -1,170 +1,89 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import * as assert from "assert";
-import * as crypto from "crypto";
+import { strict as assert } from "assert";
 import * as fs from "fs";
-import * as hashUtils from "../script/hash-utils";
-var mkdirp = require("mkdirp");
-import * as os from "os";
 import * as path from "path";
-import * as q from "q";
-var yauzl = require("yauzl");
+import { pipeline } from "stream/promises";
+import * as yauzl from "yauzl";
+import * as hashUtils from "../script/hash-utils";
+import { useTempDirectory } from "./helpers/temp-directory";
 
-import PackageManifest = hashUtils.PackageManifest;
-import Promise = q.Promise;
+const TEST_ZIP = path.join(__dirname, "resources", "test.zip");
+const TEST_ZIP_HASH = "540fed8df3553079e81d1353c5cc4e3cac7db9aea647a85d550f646e8620c317";
+const TEST_ZIP_MANIFEST_HASH = "9e0499ce7df5c04cb304c9deed684dc137fc603cb484a5b027478143c595d80b";
+const TEST_ZIP_FILE_HASHES = {
+  "b.txt": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+  "c.txt": "2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6",
+  "d.txt": "18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4",
+};
 
-function randomString(): string {
-  var stringLength = 10;
-  return crypto
-    .randomBytes(Math.ceil(stringLength / 2))
-    .toString("hex") // convert to hexadecimal format
-    .slice(0, stringLength); // return required number of characters
+// Contains OS metadata (such as __MACOSX/ and .DS_Store) next to its single real file
+const IGNORED_METADATA_ZIP = path.join(__dirname, "resources", "ignoredMetadata.zip");
+const IGNORED_METADATA_ZIP_FILE_HASHES = {
+  "www/index.html": "b0693dc92f76e08bf1485b3dd9b514a2e31dfd6f39422a6b60edb722671dc98f",
+};
+
+async function unzip(zipPath: string, directory: string): Promise<void> {
+  const zipFile = await yauzl.openPromise(zipPath);
+  try {
+    for await (const entry of zipFile.eachEntry()) {
+      const target = path.join(directory, entry.fileName);
+      if (entry.fileName.endsWith("/")) {
+        fs.mkdirSync(target, { recursive: true });
+      } else {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        await pipeline(await zipFile.openReadStreamPromise(entry), fs.createWriteStream(target));
+      }
+    }
+  } finally {
+    zipFile.close();
+  }
 }
 
-function unzipToDirectory(zipPath: string, directoryPath: string): Promise<void> {
-  var deferred: q.Deferred<void> = q.defer<void>();
-  var originalCwd: string = process.cwd();
-
-  mkdirp(directoryPath, (err: Error) => {
-    if (err) throw err;
-    process.chdir(directoryPath);
-
-    yauzl.open(zipPath, { lazyEntries: true }, function (err: Error, zipfile: any) {
-      if (err) throw err;
-      zipfile.readEntry();
-      zipfile.on("entry", function (entry: any) {
-        if (/\/$/.test(entry.fileName)) {
-          // directory file names end with '/'
-          mkdirp(entry.fileName, function (err: Error) {
-            if (err) throw err;
-            zipfile.readEntry();
-          });
-        } else {
-          // file entry
-          zipfile.openReadStream(entry, function (err: Error, readStream: any) {
-            if (err) throw err;
-            // ensure parent directory exists
-            mkdirp(path.dirname(entry.fileName), function (err: Error) {
-              if (err) throw err;
-              readStream.pipe(fs.createWriteStream(entry.fileName));
-              readStream.on("end", function () {
-                zipfile.readEntry();
-              });
-            });
-          });
-        }
-      });
-
-      zipfile.on("end", function (err: Error) {
-        if (err) deferred.reject(err);
-        else deferred.resolve(<void>null);
-      });
-    });
-  });
-
-  return deferred.promise.finally(() => {
-    process.chdir(originalCwd);
-  });
+function fileHashes(manifest: hashUtils.PackageManifest): Record<string, string> {
+  return Object.fromEntries(manifest.toMap());
 }
 
-describe("Hashing utility", () => {
-  const TEST_DIRECTORY = path.join(os.tmpdir(), "codepushtests", randomString());
+describe("hash-utils", () => {
+  const tempDirectory = useTempDirectory("hash-utils");
 
-  const TEST_ARCHIVE_FILE_PATH = path.join(__dirname, "resources", "test.zip");
-  const TEST_ZIP_HASH = "540fed8df3553079e81d1353c5cc4e3cac7db9aea647a85d550f646e8620c317";
-  const TEST_ZIP_MANIFEST_HASH = "9e0499ce7df5c04cb304c9deed684dc137fc603cb484a5b027478143c595d80b";
-  const HASH_B = "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d";
-  const HASH_C = "2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6";
-  const HASH_D = "18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4";
+  async function manifestOfUnzipped(zipPath: string): Promise<hashUtils.PackageManifest> {
+    await unzip(zipPath, tempDirectory.path);
+    return hashUtils.generatePackageManifestFromDirectory(tempDirectory.path, tempDirectory.path);
+  }
 
-  const IGNORED_METADATA_ARCHIVE_FILE_PATH = path.join(__dirname, "resources", "ignoredMetadata.zip");
-  const INDEX_HASH = "b0693dc92f76e08bf1485b3dd9b514a2e31dfd6f39422a6b60edb722671dc98f";
-
-  it("generates a package hash from file", (done) => {
-    hashUtils.hashFile(TEST_ARCHIVE_FILE_PATH).done((packageHash: string): void => {
-      assert.equal(packageHash, TEST_ZIP_HASH);
-
-      done();
-    });
+  it("hashes a file", async () => {
+    assert.equal(await hashUtils.hashFile(TEST_ZIP), TEST_ZIP_HASH);
   });
 
-  it("generates a package manifest for an archive", (done) => {
-    hashUtils.generatePackageManifestFromZip(TEST_ARCHIVE_FILE_PATH).done((manifest: PackageManifest): void => {
-      var fileHashesMap = manifest.toMap();
-      assert.equal(fileHashesMap.size, 3);
+  it("generates a package manifest for an archive", async () => {
+    const manifest = await hashUtils.generatePackageManifestFromZip(TEST_ZIP);
 
-      var hash: string = fileHashesMap.get("b.txt");
-      assert.equal(hash, HASH_B);
-
-      hash = fileHashesMap.get("c.txt");
-      assert.equal(hash, HASH_C);
-
-      hash = fileHashesMap.get("d.txt");
-      assert.equal(hash, HASH_D);
-
-      done();
-    });
+    assert.deepEqual(fileHashes(manifest), TEST_ZIP_FILE_HASHES);
   });
 
-  it("generates a package manifest for a directory", (done) => {
-    var directory = path.join(TEST_DIRECTORY, "testZip");
+  it("generates a package manifest for a directory", async () => {
+    const manifest = await manifestOfUnzipped(TEST_ZIP);
 
-    unzipToDirectory(TEST_ARCHIVE_FILE_PATH, directory)
-      .then(() => {
-        return hashUtils.generatePackageManifestFromDirectory(/*directoryPath*/ directory, /*basePath*/ directory);
-      })
-      .done((manifest: PackageManifest): void => {
-        var fileHashesMap = manifest.toMap();
-        assert.equal(fileHashesMap.size, 3);
-
-        var hash: string = fileHashesMap.get("b.txt");
-        assert.equal(hash, HASH_B);
-
-        hash = fileHashesMap.get("c.txt");
-        assert.equal(hash, HASH_C);
-
-        hash = fileHashesMap.get("d.txt");
-        assert.equal(hash, HASH_D);
-
-        done();
-      });
+    assert.deepEqual(fileHashes(manifest), TEST_ZIP_FILE_HASHES);
   });
 
-  it("generates a package hash from manifest", (done) => {
-    hashUtils
-      .generatePackageManifestFromZip(TEST_ARCHIVE_FILE_PATH)
-      .then((manifest: PackageManifest) => {
-        return manifest.computePackageHash();
-      })
-      .done((packageHash: string): void => {
-        assert.equal(packageHash, TEST_ZIP_MANIFEST_HASH);
+  it("computes the package hash from a manifest", async () => {
+    const manifest = await hashUtils.generatePackageManifestFromZip(TEST_ZIP);
 
-        done();
-      });
+    assert.equal(await manifest.computePackageHash(), TEST_ZIP_MANIFEST_HASH);
   });
 
-  it("generates a package manifest for an archive with ignorable metadata", (done) => {
-    hashUtils.generatePackageManifestFromZip(IGNORED_METADATA_ARCHIVE_FILE_PATH).done((manifest: PackageManifest): void => {
-      assert.equal(manifest.toMap().size, 1);
-      var hash: string = manifest.toMap().get("www/index.html");
-      assert.equal(hash, INDEX_HASH);
-      done();
-    });
+  it("ignores OS metadata files in an archive", async () => {
+    const manifest = await hashUtils.generatePackageManifestFromZip(IGNORED_METADATA_ZIP);
+
+    assert.deepEqual(fileHashes(manifest), IGNORED_METADATA_ZIP_FILE_HASHES);
   });
 
-  it("generates a package manifest for a directory with ignorable metadata", (done) => {
-    var directory = path.join(TEST_DIRECTORY, "ignorableMetadata");
+  it("ignores OS metadata files in a directory", async () => {
+    const manifest = await manifestOfUnzipped(IGNORED_METADATA_ZIP);
 
-    unzipToDirectory(IGNORED_METADATA_ARCHIVE_FILE_PATH, directory)
-      .then(() => {
-        return hashUtils.generatePackageManifestFromDirectory(/*directoryPath*/ directory, /*basePath*/ directory);
-      })
-      .done((manifest: PackageManifest): void => {
-        assert.equal(manifest.toMap().size, 1);
-        var hash: string = manifest.toMap().get("www/index.html");
-        assert.equal(hash, INDEX_HASH);
-        done();
-      });
+    assert.deepEqual(fileHashes(manifest), IGNORED_METADATA_ZIP_FILE_HASHES);
   });
 });
