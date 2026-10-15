@@ -7,7 +7,6 @@ const childProcess = require("child_process");
 import debugCommand from "./commands/debug";
 import * as fs from "fs";
 import * as chalk from "chalk";
-import * as moment from "moment";
 import * as os from "os";
 import * as path from "path";
 import * as semver from "semver";
@@ -40,6 +39,7 @@ import {
 } from "./react-native-utils";
 import { isHermesEnabled } from "./utils/hermes-utils";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractArchive } from "./utils/file-utils";
+import { formatDate, formatLongDateTime } from "./utils/date-utils";
 import { getAndroidVersionInfo } from "./utils/gradle-utils";
 import {
   analyzeReleaseContents,
@@ -153,7 +153,7 @@ async function accessKeyPatch(command: cli.IAccessKeyPatchCommand): Promise<void
   }
 
   if (willUpdateTtl) {
-    const expirationDate = moment(accessKey.expires).format("LLLL");
+    const expirationDate = formatLongDateTime(new Date(accessKey.expires));
     if (willUpdateName) {
       logMessage += ` and changed its expiration date to ${expirationDate}`;
     } else {
@@ -614,18 +614,6 @@ async function logout(_command: cli.ICommand): Promise<void> {
 
   sdk = null;
   deleteConnectionInfoCache();
-}
-
-function formatDate(unixOffset: number): string {
-  const date: moment.Moment = moment(unixOffset);
-  const now: moment.Moment = moment();
-  if (Math.abs(now.diff(date, "days")) < 30) {
-    return date.fromNow(); // "2 hours ago"
-  } else if (now.year() === date.year()) {
-    return date.format("MMM D"); // "Nov 6"
-  } else {
-    return date.format("MMM D, YYYY"); // "Nov 6, 2014"
-  }
 }
 
 function printAppList(format: string, apps: App[]): void {
