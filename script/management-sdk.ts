@@ -254,7 +254,7 @@ class AccountManager {
 
   // Deployments
   public async addDeployment(appName: string, deploymentName: string, deploymentKey?: string): Promise<Deployment> {
-    const deployment = <Deployment>{ name: deploymentName, key: deploymentKey };
+    const deployment = { name: deploymentName, key: deploymentKey } as Deployment;
     const res: JsonResponse = await this.post(
       urlEncode([`/apps/${appName}/deployments/`]),
       JSON.stringify(deployment),
@@ -345,23 +345,23 @@ class AccountManager {
           }
 
           if (res.ok) {
-            resolve(<void>null);
+            resolve(null);
           } else {
             let body;
             try {
               body = JSON.parse(res.text);
-            } catch (err) {}
+            } catch {}
 
             if (body) {
-              reject(<CodePushError>{
+              reject({
                 message: body.message,
                 statusCode: res && res.status,
-              });
+              } as CodePushError);
             } else {
-              reject(<CodePushError>{
+              reject({
                 message: res.text,
                 statusCode: res && res.status,
-              });
+              } as CodePushError);
             }
           }
         });
@@ -401,23 +401,23 @@ class AccountManager {
           }
 
           if (res.ok) {
-            resolve(<void>null);
+            resolve(null);
           } else {
             let body;
             try {
               body = JSON.parse(res.text);
-            } catch (err) {}
+            } catch {}
 
             if (body) {
-              reject(<CodePushError>{
+              reject({
                 message: body.message,
                 statusCode: res && res.status,
-              });
+              } as CodePushError);
             } else {
-              reject(<CodePushError>{
+              reject({
                 message: res.text,
                 statusCode: res && res.status,
-              });
+              } as CodePushError);
             }
           }
         });
@@ -537,7 +537,7 @@ class AccountManager {
     contentType: string
   ): Promise<JsonResponse> {
     return new Promise<JsonResponse>((resolve, reject) => {
-      let request: superagent.Request<any> = (<any>superagent)[method](this._serverUrl + endpoint);
+      let request: superagent.Request<any> = (superagent as any)[method](this._serverUrl + endpoint);
 
       this.attachCredentials(request);
 
@@ -557,31 +557,31 @@ class AccountManager {
         let body;
         try {
           body = JSON.parse(res.text);
-        } catch (err) {}
+        } catch {}
 
         if (res.ok) {
           if (expectResponseBody && !body) {
-            reject(<CodePushError>{
+            reject({
               message: `Could not parse response: ${res.text}`,
               statusCode: AccountManager.ERROR_INTERNAL_SERVER,
-            });
+            } as CodePushError);
           } else {
-            resolve(<JsonResponse>{
+            resolve({
               headers: res.header,
               body: body,
-            });
+            } as JsonResponse);
           }
         } else {
           if (body) {
-            reject(<CodePushError>{
+            reject({
               message: body.message,
               statusCode: this.getErrorStatus(err, res),
-            });
+            } as CodePushError);
           } else {
-            reject(<CodePushError>{
+            reject({
               message: res.text,
               statusCode: this.getErrorStatus(err, res),
-            });
+            } as CodePushError);
           }
         }
       });

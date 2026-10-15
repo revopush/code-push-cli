@@ -100,7 +100,7 @@ export function hashFile(filePath: string): Promise<string> {
 }
 
 export function hashStream(readStream: stream.Readable): Promise<string> {
-  const hashStream = <stream.Transform>(<any>crypto.createHash(HASH_ALGORITHM));
+  const hashStream = crypto.createHash(HASH_ALGORITHM);
   let isSettled = false;
 
   return new Promise<string>((resolve, reject) => {
@@ -117,7 +117,7 @@ export function hashStream(readStream: stream.Readable): Promise<string> {
           isSettled = true;
           hashStream.end();
 
-          const buffer = <Buffer>hashStream.read();
+          const buffer = hashStream.read() as Buffer;
           const hash: string = buffer.toString("hex");
 
           resolve(hash);
@@ -175,7 +175,7 @@ export class PackageManifest {
       }
 
       return new PackageManifest(map);
-    } catch (e) {}
+    } catch {}
   }
 
   public static normalizePath(filePath: string): string {

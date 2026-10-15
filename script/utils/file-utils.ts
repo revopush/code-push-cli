@@ -17,7 +17,7 @@ export function isDirectory(path: string): boolean {
 export function fileExists(file: string): boolean {
   try {
     return fs.statSync(file).isFile();
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -56,7 +56,7 @@ async function readFolder(folder: string): Promise<{ path: string; isFolder: boo
 export function fileDoesNotExistOrIsDirectory(path: string): boolean {
   try {
     return isDirectory(path);
-  } catch (error) {
+  } catch {
     return true;
   }
 }

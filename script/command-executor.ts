@@ -263,7 +263,7 @@ function deleteConnectionInfoCache(printMessage: boolean = true): void {
     if (printMessage) {
       log(`Successfully logged-out. The session file located at ${chalk.cyan(configFilePath)} has been deleted.\r\n`);
     }
-  } catch (ex) {}
+  } catch {}
 }
 
 function deleteFolder(folderPath: string): Promise<void> {
@@ -322,7 +322,7 @@ export const deploymentList = async (command: cli.IDeploymentListCommand, showPa
         const metrics: DeploymentMetrics = await sdk.getDeploymentMetrics(command.appName, deployment.name);
         if (metrics[deployment.package.label]) {
           const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
-          (<PackageWithMetrics>deployment.package).metrics = {
+          (deployment.package as PackageWithMetrics).metrics = {
             active: metrics[deployment.package.label].active,
             downloaded: metrics[deployment.package.label].downloaded,
             failed: metrics[deployment.package.label].failed,
@@ -377,7 +377,7 @@ async function deploymentHistory(command: cli.IDeploymentHistoryCommand): Promis
   const totalActive: number = getTotalActiveFromDeploymentMetrics(metrics);
   deploymentHistory.forEach((packageObject: Package) => {
     if (metrics[packageObject.label]) {
-      (<PackageWithMetrics>packageObject).metrics = {
+      (packageObject as PackageWithMetrics).metrics = {
         active: metrics[packageObject.label].active,
         downloaded: metrics[packageObject.label].downloaded,
         failed: metrics[packageObject.label].failed,
@@ -386,7 +386,7 @@ async function deploymentHistory(command: cli.IDeploymentHistoryCommand): Promis
       };
     }
   });
-  printDeploymentHistory(command, <Package[]>deploymentHistory, account.email);
+  printDeploymentHistory(command, deploymentHistory as Package[], account.email);
 }
 
 function deserializeConnectionInfo(): ILoginConnectionInfo {
@@ -397,16 +397,16 @@ function deserializeConnectionInfo(): ILoginConnectionInfo {
     let connectionInfo: ILegacyLoginConnectionInfo | ILoginConnectionInfo = JSON.parse(savedConnection);
 
     // If the connection info is in the legacy format, convert it to the modern format
-    if ((<ILegacyLoginConnectionInfo>connectionInfo).accessKeyName) {
-      connectionInfo = <ILoginConnectionInfo>{
-        accessKey: (<ILegacyLoginConnectionInfo>connectionInfo).accessKeyName,
-      };
+    if ((connectionInfo as ILegacyLoginConnectionInfo).accessKeyName) {
+      connectionInfo = {
+        accessKey: (connectionInfo as ILegacyLoginConnectionInfo).accessKeyName,
+      } as ILoginConnectionInfo;
     }
 
-    const connInfo = <ILoginConnectionInfo>connectionInfo;
+    const connInfo = connectionInfo as ILoginConnectionInfo;
 
     return connInfo;
-  } catch (ex) {
+  } catch {
     return;
   }
 }
@@ -441,100 +441,100 @@ export async function execute(command: cli.ICommand): Promise<void> {
 
   switch (command.type) {
     case cli.CommandType.accessKeyAdd:
-      return accessKeyAdd(<cli.IAccessKeyAddCommand>command);
+      return accessKeyAdd(command as cli.IAccessKeyAddCommand);
 
     case cli.CommandType.accessKeyPatch:
-      return accessKeyPatch(<cli.IAccessKeyPatchCommand>command);
+      return accessKeyPatch(command as cli.IAccessKeyPatchCommand);
 
     case cli.CommandType.accessKeyList:
-      return accessKeyList(<cli.IAccessKeyListCommand>command);
+      return accessKeyList(command as cli.IAccessKeyListCommand);
 
     case cli.CommandType.accessKeyRemove:
-      return accessKeyRemove(<cli.IAccessKeyRemoveCommand>command);
+      return accessKeyRemove(command as cli.IAccessKeyRemoveCommand);
 
     case cli.CommandType.appAdd:
-      return appAdd(<cli.IAppAddCommand>command);
+      return appAdd(command as cli.IAppAddCommand);
 
     case cli.CommandType.appList:
-      return appList(<cli.IAppListCommand>command);
+      return appList(command as cli.IAppListCommand);
 
     case cli.CommandType.appRemove:
-      return appRemove(<cli.IAppRemoveCommand>command);
+      return appRemove(command as cli.IAppRemoveCommand);
 
     case cli.CommandType.appRename:
-      return appRename(<cli.IAppRenameCommand>command);
+      return appRename(command as cli.IAppRenameCommand);
 
     case cli.CommandType.appTransfer:
-      return appTransfer(<cli.IAppTransferCommand>command);
+      return appTransfer(command as cli.IAppTransferCommand);
 
     case cli.CommandType.collaboratorAdd:
-      return addCollaborator(<cli.ICollaboratorAddCommand>command);
+      return addCollaborator(command as cli.ICollaboratorAddCommand);
 
     case cli.CommandType.collaboratorList:
-      return listCollaborators(<cli.ICollaboratorListCommand>command);
+      return listCollaborators(command as cli.ICollaboratorListCommand);
 
     case cli.CommandType.collaboratorRemove:
-      return removeCollaborator(<cli.ICollaboratorRemoveCommand>command);
+      return removeCollaborator(command as cli.ICollaboratorRemoveCommand);
 
     case cli.CommandType.debug:
-      return debugCommand(<cli.IDebugCommand>command);
+      return debugCommand(command as cli.IDebugCommand);
 
     case cli.CommandType.deploymentAdd:
-      return deploymentAdd(<cli.IDeploymentAddCommand>command);
+      return deploymentAdd(command as cli.IDeploymentAddCommand);
 
     case cli.CommandType.deploymentHistoryClear:
-      return deploymentHistoryClear(<cli.IDeploymentHistoryClearCommand>command);
+      return deploymentHistoryClear(command as cli.IDeploymentHistoryClearCommand);
 
     case cli.CommandType.deploymentHistory:
-      return deploymentHistory(<cli.IDeploymentHistoryCommand>command);
+      return deploymentHistory(command as cli.IDeploymentHistoryCommand);
 
     case cli.CommandType.deploymentList:
-      return deploymentList(<cli.IDeploymentListCommand>command);
+      return deploymentList(command as cli.IDeploymentListCommand);
 
     case cli.CommandType.deploymentRemove:
-      return deploymentRemove(<cli.IDeploymentRemoveCommand>command);
+      return deploymentRemove(command as cli.IDeploymentRemoveCommand);
 
     case cli.CommandType.deploymentRename:
-      return deploymentRename(<cli.IDeploymentRenameCommand>command);
+      return deploymentRename(command as cli.IDeploymentRenameCommand);
 
     case cli.CommandType.link:
-      return link(<cli.ILinkCommand>command);
+      return link(command as cli.ILinkCommand);
 
     case cli.CommandType.login:
-      return login(<cli.ILoginCommand>command);
+      return login(command as cli.ILoginCommand);
 
     case cli.CommandType.logout:
       return logout(command);
 
     case cli.CommandType.patch:
-      return patch(<cli.IPatchCommand>command);
+      return patch(command as cli.IPatchCommand);
 
     case cli.CommandType.promote:
-      return promote(<cli.IPromoteCommand>command);
+      return promote(command as cli.IPromoteCommand);
 
     case cli.CommandType.register:
-      return register(<cli.IRegisterCommand>command);
+      return register(command as cli.IRegisterCommand);
 
     case cli.CommandType.release:
-      return release(<cli.IReleaseCommand>command);
+      return release(command as cli.IReleaseCommand);
 
     case cli.CommandType.releaseReact:
-      return releaseReact(<cli.IReleaseReactCommand>command);
+      return releaseReact(command as cli.IReleaseReactCommand);
 
     case cli.CommandType.releaseExpo:
-      return releaseExpo(<cli.IReleaseReactCommand>command);
+      return releaseExpo(command as cli.IReleaseReactCommand);
 
     case cli.CommandType.releaseNative:
-      return releaseNative(<cli.IReleaseNativeCommand>command);
+      return releaseNative(command as cli.IReleaseNativeCommand);
 
     case cli.CommandType.rollback:
-      return rollback(<cli.IRollbackCommand>command);
+      return rollback(command as cli.IRollbackCommand);
 
     case cli.CommandType.sessionList:
-      return sessionList(<cli.ISessionListCommand>command);
+      return sessionList(command as cli.ISessionListCommand);
 
     case cli.CommandType.sessionRemove:
-      return sessionRemove(<cli.ISessionRemoveCommand>command);
+      return sessionRemove(command as cli.ISessionRemoveCommand);
 
     case cli.CommandType.whoami:
       return whoami(command);
@@ -720,7 +720,7 @@ function printDeploymentHistory(command: cli.IDeploymentHistoryCommand, deployme
         row.push(packageObject.description ? wordwrap(30)(packageObject.description) : "");
         row.push(getPackageMetricsString(packageObject) + (packageObject.isDisabled ? `\n${chalk.green("Disabled:")} Yes` : ""));
         if (packageObject.isDisabled) {
-          row = row.map((cellContents: string) => applyChalkSkippingLineBreaks(cellContents, (<any>chalk).dim));
+          row = row.map((cellContents: string) => applyChalkSkippingLineBreaks(cellContents, chalk.dim));
         }
 
         dataSource.push(row);
@@ -768,7 +768,7 @@ function getPackageString(packageObject: Package): string {
 }
 
 function getPackageMetricsString(obj: Package): string {
-  const packageObject = <PackageWithMetrics>obj;
+  const packageObject = obj as PackageWithMetrics;
   const rolloutString: string =
     obj && obj.rollout && obj.rollout !== 100 ? `\n${chalk.green("Rollout:")} ${obj.rollout.toLocaleString()}%` : "";
 
@@ -844,7 +844,7 @@ async function getReactNativeProjectVersionInfo(command: cli.IReleaseReactComman
 
       const knownLocations = [path.join(iOSDirectory, projectName, plistFileName), path.join(iOSDirectory, plistFileName)];
 
-      resolvedPlistFile = (<any>knownLocations).find(fileExists);
+      resolvedPlistFile = knownLocations.find(fileExists);
 
       if (!resolvedPlistFile) {
         throw new Error(
@@ -861,7 +861,7 @@ async function getReactNativeProjectVersionInfo(command: cli.IReleaseReactComman
 
     try {
       parsedPlist = plist.parse(plistContents);
-    } catch (e) {
+    } catch {
       throw new Error(`Unable to parse "${resolvedPlistFile}". Please ensure it is a well-formed plist file.`);
     }
 
@@ -984,7 +984,7 @@ function printAccessKeys(format: string, keys: AccessKey[]): void {
 
         if (dim) {
           row.forEach((col: string, index: number) => {
-            row[index] = (<any>chalk).dim(col);
+            row[index] = chalk.dim(col);
           });
         }
 
@@ -1163,7 +1163,7 @@ export const runExpoExportEmbedCommand = async ({
         reject(new Error(`"expo export:embed" command exited with code ${exitCode}.`));
       }
 
-      resolve(<void>null);
+      resolve();
     });
   });
 };
@@ -1201,7 +1201,7 @@ function validateReactReleaseCommand(command: cli.IReleaseReactCommand, options:
   let projectPackageJson: any;
   try {
     projectPackageJson = require(path.join(process.cwd(), "package.json"));
-  } catch (error) {
+  } catch {
     throw new Error(
       'Unable to find or read "package.json" in the CWD. The command must be executed in a React Native project folder.'
     );
@@ -1324,7 +1324,7 @@ export const releaseExpo = async (command: cli.IReleaseReactCommand): Promise<vo
   // resolved path -- so capture whether the user actually passed one before that happens.
   const isTempOutputFolder: boolean = !command.outputDir;
 
-  const releaseCommand: cli.IReleaseReactCommand = <any>command;
+  const releaseCommand: cli.IReleaseReactCommand = command;
   releaseCommand.package = outputFolder;
   releaseCommand.outputDir = outputFolder;
   releaseCommand.bundleName = bundleName;
@@ -1387,7 +1387,7 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
   // resolved path -- so capture whether the user actually passed one before that happens.
   const isTempOutputFolder: boolean = !command.outputDir;
 
-  const releaseCommand: cli.IReleaseReactCommand = <any>command;
+  const releaseCommand: cli.IReleaseReactCommand = command;
   releaseCommand.package = outputFolder;
   releaseCommand.outputDir = outputFolder;
   releaseCommand.bundleName = bundleName;
@@ -1541,7 +1541,7 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
     try {
       await deleteFolder(extractFolder);
       await deleteFolder(outputFolder);
-    } catch (ignored) {}
+    } catch {}
   }
 };
 
@@ -1763,7 +1763,7 @@ export const runReactNativeBundleCommand = async (
         reject(new Error(`"react-native bundle" command exited with code ${exitCode}.`));
       }
 
-      resolve(<void>null);
+      resolve();
     });
   });
 };
@@ -1809,7 +1809,7 @@ async function sessionRemove(command: cli.ISessionRemoveCommand): Promise<void> 
 }
 
 function releaseErrorHandler(error: CodePushError, command: cli.ICommand): void {
-  if ((<any>command).noDuplicateReleaseError && error.statusCode === AccountManager.ERROR_CONFLICT) {
+  if ((command as any).noDuplicateReleaseError && error.statusCode === AccountManager.ERROR_CONFLICT) {
     console.warn(chalk.yellow("[Warning] " + error.message));
   } else {
     throw error;
