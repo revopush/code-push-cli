@@ -107,7 +107,7 @@ class AccountManager {
     });
   }
 
-  public addAccessKey(friendlyName: string, ttl?: number): Promise<AccessKey> {
+  public async addAccessKey(friendlyName: string, ttl?: number): Promise<AccessKey> {
     if (!friendlyName) {
       throw new Error("A name must be specified when adding an access key.");
     }
@@ -118,187 +118,195 @@ class AccountManager {
       ttl,
     };
 
-    return this.post(urlEncode(["/accessKeys/"]), JSON.stringify(accessKeyRequest), /*expectResponseBody=*/ true).then(
-      (response: JsonResponse) => {
-        return {
-          createdTime: response.body.accessKey.createdTime,
-          expires: response.body.accessKey.expires,
-          key: response.body.accessKey.name,
-          name: response.body.accessKey.friendlyName,
+    const res: JsonResponse = await this.post(
+      urlEncode(["/accessKeys/"]),
+      JSON.stringify(accessKeyRequest),
+      /*expectResponseBody=*/ true
+    );
+    return {
+      createdTime: res.body.accessKey.createdTime,
+      expires: res.body.accessKey.expires,
+      key: res.body.accessKey.name,
+      name: res.body.accessKey.friendlyName,
+    };
+  }
+
+  public async getAccessKey(accessKeyName: string): Promise<AccessKey> {
+    const res: JsonResponse = await this.get(urlEncode([`/accessKeys/${accessKeyName}`]));
+    return {
+      createdTime: res.body.accessKey.createdTime,
+      expires: res.body.accessKey.expires,
+      name: res.body.accessKey.friendlyName,
+    };
+  }
+
+  public async getAccessKeys(): Promise<AccessKey[]> {
+    const res: JsonResponse = await this.get(urlEncode(["/accessKeys"]));
+    const accessKeys: AccessKey[] = [];
+
+    res.body.accessKeys.forEach((serverAccessKey: ServerAccessKey) => {
+      !serverAccessKey.isSession &&
+        accessKeys.push({
+          createdTime: serverAccessKey.createdTime,
+          expires: serverAccessKey.expires,
+          name: serverAccessKey.friendlyName,
+        });
+    });
+
+    return accessKeys;
+  }
+
+  public async getSessions(): Promise<Session[]> {
+    const res: JsonResponse = await this.get(urlEncode(["/accessKeys"]));
+    // A machine name might be associated with multiple session keys,
+    // but we should only return one per machine name.
+    const sessionMap: { [machineName: string]: Session } = {};
+    const now: number = new Date().getTime();
+    res.body.accessKeys.forEach((serverAccessKey: ServerAccessKey) => {
+      if (serverAccessKey.isSession && serverAccessKey.expires > now) {
+        sessionMap[serverAccessKey.createdBy] = {
+          loggedInTime: serverAccessKey.createdTime,
+          machineName: serverAccessKey.createdBy,
         };
       }
-    );
-  }
-
-  public getAccessKey(accessKeyName: string): Promise<AccessKey> {
-    return this.get(urlEncode([`/accessKeys/${accessKeyName}`])).then((res: JsonResponse) => {
-      return {
-        createdTime: res.body.accessKey.createdTime,
-        expires: res.body.accessKey.expires,
-        name: res.body.accessKey.friendlyName,
-      };
     });
+
+    return Object.keys(sessionMap).map((machineName: string) => sessionMap[machineName]);
   }
 
-  public getAccessKeys(): Promise<AccessKey[]> {
-    return this.get(urlEncode(["/accessKeys"])).then((res: JsonResponse) => {
-      const accessKeys: AccessKey[] = [];
-
-      res.body.accessKeys.forEach((serverAccessKey: ServerAccessKey) => {
-        !serverAccessKey.isSession &&
-          accessKeys.push({
-            createdTime: serverAccessKey.createdTime,
-            expires: serverAccessKey.expires,
-            name: serverAccessKey.friendlyName,
-          });
-      });
-
-      return accessKeys;
-    });
-  }
-
-  public getSessions(): Promise<Session[]> {
-    return this.get(urlEncode(["/accessKeys"])).then((res: JsonResponse) => {
-      // A machine name might be associated with multiple session keys,
-      // but we should only return one per machine name.
-      const sessionMap: { [machineName: string]: Session } = {};
-      const now: number = new Date().getTime();
-      res.body.accessKeys.forEach((serverAccessKey: ServerAccessKey) => {
-        if (serverAccessKey.isSession && serverAccessKey.expires > now) {
-          sessionMap[serverAccessKey.createdBy] = {
-            loggedInTime: serverAccessKey.createdTime,
-            machineName: serverAccessKey.createdBy,
-          };
-        }
-      });
-
-      const sessions: Session[] = Object.keys(sessionMap).map((machineName: string) => sessionMap[machineName]);
-
-      return sessions;
-    });
-  }
-
-  public patchAccessKey(oldName: string, newName?: string, ttl?: number): Promise<AccessKey> {
+  public async patchAccessKey(oldName: string, newName?: string, ttl?: number): Promise<AccessKey> {
     const accessKeyRequest: AccessKeyRequest = {
       friendlyName: newName,
       ttl,
     };
 
-    return this.patch(urlEncode([`/accessKeys/${oldName}`]), JSON.stringify(accessKeyRequest)).then((res: JsonResponse) => {
-      return {
-        createdTime: res.body.accessKey.createdTime,
-        expires: res.body.accessKey.expires,
-        name: res.body.accessKey.friendlyName,
-      };
-    });
+    const res: JsonResponse = await this.patch(urlEncode([`/accessKeys/${oldName}`]), JSON.stringify(accessKeyRequest));
+    return {
+      createdTime: res.body.accessKey.createdTime,
+      expires: res.body.accessKey.expires,
+      name: res.body.accessKey.friendlyName,
+    };
   }
 
-  public removeAccessKey(name: string): Promise<void> {
-    return this.del(urlEncode([`/accessKeys/${name}`])).then(() => null);
+  public async removeAccessKey(name: string): Promise<void> {
+    await this.del(urlEncode([`/accessKeys/${name}`]));
+    return null;
   }
 
-  public removeSession(machineName: string): Promise<void> {
-    return this.del(urlEncode([`/sessions/${machineName}`])).then(() => null);
+  public async removeSession(machineName: string): Promise<void> {
+    await this.del(urlEncode([`/sessions/${machineName}`]));
+    return null;
   }
 
   // Account
-  public getAccountInfo(): Promise<Account> {
-    return this.get(urlEncode(["/account"])).then((res: JsonResponse) => res.body.account);
+  public async getAccountInfo(): Promise<Account> {
+    const res: JsonResponse = await this.get(urlEncode(["/account"]));
+    return res.body.account;
   }
 
   // Apps
-  public getApps(): Promise<App[]> {
-    return this.get(urlEncode(["/apps"])).then((res: JsonResponse) => res.body.apps);
+  public async getApps(): Promise<App[]> {
+    const res: JsonResponse = await this.get(urlEncode(["/apps"]));
+    return res.body.apps;
   }
 
-  public getApp(appName: string): Promise<App> {
-    return this.get(urlEncode([`/apps/${appName}`])).then((res: JsonResponse) => res.body.app);
+  public async getApp(appName: string): Promise<App> {
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}`]));
+    return res.body.app;
   }
 
-  public addApp(appName: string): Promise<App> {
+  public async addApp(appName: string): Promise<App> {
     const app: App = { name: appName };
-    return this.post(urlEncode(["/apps/"]), JSON.stringify(app), /*expectResponseBody=*/ false).then(() => app);
+    await this.post(urlEncode(["/apps/"]), JSON.stringify(app), /*expectResponseBody=*/ false);
+    return app;
   }
 
-  public removeApp(appName: string): Promise<void> {
-    return this.del(urlEncode([`/apps/${appName}`])).then(() => null);
+  public async removeApp(appName: string): Promise<void> {
+    await this.del(urlEncode([`/apps/${appName}`]));
+    return null;
   }
 
-  public renameApp(oldAppName: string, newAppName: string): Promise<void> {
-    return this.patch(urlEncode([`/apps/${oldAppName}`]), JSON.stringify({ name: newAppName })).then(() => null);
+  public async renameApp(oldAppName: string, newAppName: string): Promise<void> {
+    await this.patch(urlEncode([`/apps/${oldAppName}`]), JSON.stringify({ name: newAppName }));
+    return null;
   }
 
-  public transferApp(appName: string, email: string): Promise<void> {
-    return this.post(urlEncode([`/apps/${appName}/transfer/${email}`]), /*requestBody=*/ null, /*expectResponseBody=*/ false).then(
-      () => null
-    );
+  public async transferApp(appName: string, email: string): Promise<void> {
+    await this.post(urlEncode([`/apps/${appName}/transfer/${email}`]), /*requestBody=*/ null, /*expectResponseBody=*/ false);
+    return null;
   }
 
   // Collaborators
-  public getCollaborators(appName: string): Promise<CollaboratorMap> {
-    return this.get(urlEncode([`/apps/${appName}/collaborators`])).then((res: JsonResponse) => res.body.collaborators);
+  public async getCollaborators(appName: string): Promise<CollaboratorMap> {
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}/collaborators`]));
+    return res.body.collaborators;
   }
 
-  public addCollaborator(appName: string, email: string): Promise<void> {
-    return this.post(
-      urlEncode([`/apps/${appName}/collaborators/${email}`]),
-      /*requestBody=*/ null,
-      /*expectResponseBody=*/ false
-    ).then(() => null);
+  public async addCollaborator(appName: string, email: string): Promise<void> {
+    await this.post(urlEncode([`/apps/${appName}/collaborators/${email}`]), /*requestBody=*/ null, /*expectResponseBody=*/ false);
+    return null;
   }
 
-  public removeCollaborator(appName: string, email: string): Promise<void> {
-    return this.del(urlEncode([`/apps/${appName}/collaborators/${email}`])).then(() => null);
+  public async removeCollaborator(appName: string, email: string): Promise<void> {
+    await this.del(urlEncode([`/apps/${appName}/collaborators/${email}`]));
+    return null;
   }
 
   // Deployments
-  public addDeployment(appName: string, deploymentName: string, deploymentKey?: string): Promise<Deployment> {
+  public async addDeployment(appName: string, deploymentName: string, deploymentKey?: string): Promise<Deployment> {
     const deployment = <Deployment>{ name: deploymentName, key: deploymentKey };
-    return this.post(urlEncode([`/apps/${appName}/deployments/`]), JSON.stringify(deployment), /*expectResponseBody=*/ true).then(
-      (res: JsonResponse) => res.body.deployment
+    const res: JsonResponse = await this.post(
+      urlEncode([`/apps/${appName}/deployments/`]),
+      JSON.stringify(deployment),
+      /*expectResponseBody=*/ true
     );
+    return res.body.deployment;
   }
 
-  public clearDeploymentHistory(appName: string, deploymentName: string): Promise<void> {
-    return this.del(urlEncode([`/apps/${appName}/deployments/${deploymentName}/history`])).then(() => null);
+  public async clearDeploymentHistory(appName: string, deploymentName: string): Promise<void> {
+    await this.del(urlEncode([`/apps/${appName}/deployments/${deploymentName}/history`]));
+    return null;
   }
 
-  public getDeployments(appName: string): Promise<Deployment[]> {
-    return this.get(urlEncode([`/apps/${appName}/deployments/`])).then((res: JsonResponse) => res.body.deployments);
+  public async getDeployments(appName: string): Promise<Deployment[]> {
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}/deployments/`]));
+    return res.body.deployments;
   }
 
-  public getDeployment(appName: string, deploymentName: string): Promise<Deployment> {
-    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}`])).then((res: JsonResponse) => res.body.deployment);
+  public async getDeployment(appName: string, deploymentName: string): Promise<Deployment> {
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}`]));
+    return res.body.deployment;
   }
 
-  public getBaseRelease(appName: string, deploymentName: string, appVersion: string, buildNumber?: string): Promise<BaseRelease> {
+  public async getBaseRelease(
+    appName: string,
+    deploymentName: string,
+    appVersion: string,
+    buildNumber?: string
+  ): Promise<BaseRelease> {
     const qs = buildNumber ? `?appVersion=${appVersion}&buildNumber=${buildNumber}` : `?appVersion=${appVersion}`;
-    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/basebundle${qs}`])).then(
-      (res: JsonResponse) => res.body.basebundle
-    );
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/basebundle${qs}`]));
+    return res.body.basebundle;
   }
 
-  public renameDeployment(appName: string, oldDeploymentName: string, newDeploymentName: string): Promise<void> {
-    return this.patch(
-      urlEncode([`/apps/${appName}/deployments/${oldDeploymentName}`]),
-      JSON.stringify({ name: newDeploymentName })
-    ).then(() => null);
+  public async renameDeployment(appName: string, oldDeploymentName: string, newDeploymentName: string): Promise<void> {
+    await this.patch(urlEncode([`/apps/${appName}/deployments/${oldDeploymentName}`]), JSON.stringify({ name: newDeploymentName }));
+    return null;
   }
 
-  public removeDeployment(appName: string, deploymentName: string): Promise<void> {
-    return this.del(urlEncode([`/apps/${appName}/deployments/${deploymentName}`])).then(() => null);
+  public async removeDeployment(appName: string, deploymentName: string): Promise<void> {
+    await this.del(urlEncode([`/apps/${appName}/deployments/${deploymentName}`]));
+    return null;
   }
 
-  public getDeploymentMetrics(appName: string, deploymentName: string): Promise<DeploymentMetrics> {
-    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/metrics`])).then(
-      (res: JsonResponse) => res.body.metrics
-    );
+  public async getDeploymentMetrics(appName: string, deploymentName: string): Promise<DeploymentMetrics> {
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/metrics`]));
+    return res.body.metrics;
   }
 
-  public getDeploymentHistory(appName: string, deploymentName: string): Promise<Package[]> {
-    return this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/history`])).then(
-      (res: JsonResponse) => res.body.history
-    );
+  public async getDeploymentHistory(appName: string, deploymentName: string): Promise<Package[]> {
+    const res: JsonResponse = await this.get(urlEncode([`/apps/${appName}/deployments/${deploymentName}/history`]));
+    return res.body.history;
   }
 
   public async release(
@@ -416,35 +424,38 @@ class AccountManager {
     });
   }
 
-  public patchRelease(appName: string, deploymentName: string, label: string, updateMetadata: PackageInfo): Promise<void> {
+  public async patchRelease(appName: string, deploymentName: string, label: string, updateMetadata: PackageInfo): Promise<void> {
     const requestBody: string = JSON.stringify({ packageInfo: { ...updateMetadata, label } });
-    return this.patch(
+    await this.patch(
       urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`]),
       requestBody,
       /*expectResponseBody=*/ false
-    ).then(() => null);
+    );
+    return null;
   }
 
-  public promote(
+  public async promote(
     appName: string,
     sourceDeploymentName: string,
     destinationDeploymentName: string,
     updateMetadata: PackageInfo
   ): Promise<void> {
     const requestBody: string = JSON.stringify({ packageInfo: updateMetadata });
-    return this.post(
+    await this.post(
       urlEncode([`/apps/${appName}/deployments/${sourceDeploymentName}/promote/${destinationDeploymentName}`]),
       requestBody,
       /*expectResponseBody=*/ false
-    ).then(() => null);
+    );
+    return null;
   }
 
-  public rollback(appName: string, deploymentName: string, targetRelease?: string): Promise<void> {
-    return this.post(
+  public async rollback(appName: string, deploymentName: string, targetRelease?: string): Promise<void> {
+    await this.post(
       urlEncode([`/apps/${appName}/deployments/${deploymentName}/rollback/${targetRelease || ``}`]),
       /*requestBody=*/ null,
       /*expectResponseBody=*/ false
-    ).then(() => null);
+    );
+    return null;
   }
 
   private async packageFileFromPath(filePath: string): Promise<PackageFile> {

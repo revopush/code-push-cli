@@ -123,10 +123,12 @@ function findGradleBuildFile(gradleFile?: string | null): string | undefined {
   );
 }
 
-function parseGroovyDslBuildFile(buildFile: string): Promise<any> {
-  return g2js.parseFile(buildFile).catch(() => {
+async function parseGroovyDslBuildFile(buildFile: string): Promise<any> {
+  try {
+    return await g2js.parseFile(buildFile);
+  } catch {
     throw new Error(`Unable to parse the "${buildFile}" file. Please ensure it is a well-formed Gradle file.`);
-  });
+  }
 }
 
 // RN < 0.71's `project.ext.react = [key: value]`. g2js prepends a trailing `// comment` to the next entry, so strip it
