@@ -116,7 +116,7 @@ async function openIPA(ipaPath: string): Promise<{ files: IpaFile[]; appPrefix: 
   const files: IpaFile[] = [];
   for await (const entry of zipFile.eachEntry()) {
     if (entry.fileName.endsWith("/")) continue;
-    files.push({ path: entry.fileName, buffer: () => zipFile.openReadStreamPromise(entry).then(readStreamToBuffer) });
+    files.push({ path: entry.fileName, buffer: async () => readStreamToBuffer(await zipFile.openReadStreamPromise(entry)) });
   }
 
   const appPrefix = files.map((f) => f.path.match(/^(Payload\/[^/]+\.app)\//)?.[1]).find(Boolean);

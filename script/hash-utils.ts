@@ -17,14 +17,13 @@ import { listFiles } from "./utils/file-utils";
 
 const HASH_ALGORITHM = "sha256";
 
-export function generatePackageHashFromDirectory(directoryPath: string, basePath: string): Promise<string> {
+export async function generatePackageHashFromDirectory(directoryPath: string, basePath: string): Promise<string> {
   if (!fs.lstatSync(directoryPath).isDirectory()) {
     throw new Error("Not a directory. Please either create a directory, or use hashFile().");
   }
 
-  return generatePackageManifestFromDirectory(directoryPath, basePath).then((manifest: PackageManifest) => {
-    return manifest.computePackageHash();
-  });
+  const manifest: PackageManifest = await generatePackageManifestFromDirectory(directoryPath, basePath);
+  return manifest.computePackageHash();
 }
 
 export function generatePackageManifestFromZip(filePath: string): Promise<PackageManifest> {
@@ -143,7 +142,7 @@ export class PackageManifest {
     return this._map;
   }
 
-  public computePackageHash(): Promise<string> {
+  public async computePackageHash(): Promise<string> {
     let entries: string[] = [];
     this._map.forEach((hash: string, name: string): void => {
       entries.push(name + ":" + hash);
@@ -153,7 +152,7 @@ export class PackageManifest {
     // can also compute this hash easily given the update contents.
     entries = entries.sort();
 
-    return Promise.resolve(crypto.createHash(HASH_ALGORITHM).update(JSON.stringify(entries)).digest("hex"));
+    return crypto.createHash(HASH_ALGORITHM).update(JSON.stringify(entries)).digest("hex");
   }
 
   public serialize(): string {
