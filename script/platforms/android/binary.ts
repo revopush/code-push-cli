@@ -7,7 +7,7 @@ import * as chalk from "chalk";
 import * as protobuf from "protobufjs";
 import * as yauzl from "yauzl";
 
-import { log } from "../../ui/log";
+import { log } from "../../ui/terminal";
 import { createZipArchive } from "../../utils/file-utils";
 
 export async function extractMetadataFromAndroid(extractFolder, outputFolder) {

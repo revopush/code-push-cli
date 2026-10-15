@@ -9,8 +9,7 @@ import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
 import * as bundler from "../script/platforms/react-native/bundler";
 import * as cli from "../script/types/cli";
-import * as uiLog from "../script/ui/log";
-import * as uiPrompt from "../script/ui/prompt";
+import * as terminal from "../script/ui/terminal";
 import { argValue, fakeBundlerProcess } from "./helpers/bundler";
 import { restoreEnvAfterEach } from "./helpers/env";
 import { DEFAULT_ACCESS_KEY_MAX_AGE, NOW, SdkStub, TEST_MACHINE_NAME } from "./helpers/sdk-stub";
@@ -119,9 +118,9 @@ describe("CLI", () => {
 
   beforeEach(() => {
     sinon.stub(cmdexec, "sdk").value(new SdkStub());
-    confirm = sinon.stub(uiPrompt, "confirm").resolves(true);
+    confirm = sinon.stub(terminal, "confirm").resolves(true);
     sinon.stub(cmdexec, "createEmptyTempReleaseFolder").resolves();
-    log = sinon.stub(uiLog, "log");
+    log = sinon.stub(terminal, "log");
     spawn = sinon.stub(bundler, "spawn").callsFake(fakeBundler);
   });
 

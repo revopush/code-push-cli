@@ -2,7 +2,7 @@ import { strict as assert } from "assert";
 import * as fs from "fs";
 import * as path from "path";
 import * as sinon from "sinon";
-import * as uiLog from "../script/ui/log";
+import * as terminal from "../script/ui/terminal";
 import {
   findHermesc,
   getHermescBytecodeVersion,
@@ -113,7 +113,7 @@ describe("hermes", () => {
           "android/app/build.gradle",
           'react {\n    hermesCommand = new File(["node", "--print", "require.resolve(\'hermes-compiler/package.json\', { paths: [require.resolve(\'react-native/package.json\')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/hermesc/%OS-BIN%/hermesc"\n}\n'
         );
-        const log = sinon.stub(uiLog, "log");
+        const log = sinon.stub(terminal, "log");
 
         assert.equal(await resolvedHermesc({ platform: "android" }), compiler);
         sinon.assert.notCalled(log);
@@ -285,7 +285,7 @@ describe("hermes", () => {
     let log: sinon.SinonStub;
 
     beforeEach(() => {
-      log = sinon.stub(uiLog, "log");
+      log = sinon.stub(terminal, "log");
     });
 
     it("accepts the base bytecode when versions match", () => {
