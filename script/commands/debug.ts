@@ -4,7 +4,6 @@
 import * as childProcess from "child_process";
 import * as cli from "../../script/types/cli";
 import * as path from "path";
-import { formatClockTime } from "../utils/date-utils";
 
 const simctl = require("simctl");
 const which = require("which");
@@ -111,7 +110,7 @@ function processLogData(logData: Buffer) {
       // log message prefix that is added to each entry.
       const message = line.substring(line.indexOf(logMessagePrefix) + logMessagePrefix.length);
 
-      const timeStamp = formatClockTime(new Date());
+      const timeStamp = new Date().toLocaleTimeString("en-US", { hourCycle: "h23" });
       return `[${timeStamp}] ${message}`;
     })
     .forEach((line: string) => console.log(line));

@@ -39,7 +39,6 @@ import {
 } from "./react-native-utils";
 import { isHermesEnabled } from "./utils/hermes-utils";
 import { fileDoesNotExistOrIsDirectory, fileExists, isBinaryOrZip, extractArchive } from "./utils/file-utils";
-import { formatDate, formatLongDateTime } from "./utils/date-utils";
 import { getAndroidVersionInfo } from "./utils/gradle-utils";
 import {
   analyzeReleaseContents,
@@ -153,7 +152,7 @@ async function accessKeyPatch(command: cli.IAccessKeyPatchCommand): Promise<void
   }
 
   if (willUpdateTtl) {
-    const expirationDate = formatLongDateTime(new Date(accessKey.expires));
+    const expirationDate = new Date(accessKey.expires).toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
     if (willUpdateName) {
       logMessage += ` and changed its expiration date to ${expirationDate}`;
     } else {
@@ -938,6 +937,31 @@ async function getAppVersionFromXcodeProject(
   }
 
   return { appVersion: marketingVersion, buildNumber: String(currentProjectVersion) };
+}
+
+const relativeTimeFormat = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
+const RELATIVE_TIME_UNITS: Array<[unit: Intl.RelativeTimeFormatUnit, ms: number]> = [
+  ["day", 24 * 60 * 60 * 1000],
+  ["hour", 60 * 60 * 1000],
+  ["minute", 60 * 1000],
+  ["second", 1000],
+];
+
+// "2 hours ago" within 30 days, otherwise "Nov 6" in the current year and "Nov 6, 2014" before it
+function formatDate(unixOffset: number): string {
+  if (!Number.isFinite(unixOffset)) {
+    return "";
+  }
+
+  const msFromNow: number = unixOffset - Date.now();
+  if (Math.abs(msFromNow) < 30 * RELATIVE_TIME_UNITS[0][1]) {
+    const [unit, ms] = RELATIVE_TIME_UNITS.find(([, ms]) => Math.abs(msFromNow) >= ms) ?? ["second", 1000];
+    return relativeTimeFormat.format(Math.round(msFromNow / ms), unit);
+  }
+
+  const date = new Date(unixOffset);
+  const year = date.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year });
 }
 
 function printJson(object: any): void {
