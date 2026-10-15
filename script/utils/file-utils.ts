@@ -118,3 +118,11 @@ export function createZip(zipPath: string, entries: ZipEntry[]): Promise<void> {
     zipFile.end();
   });
 }
+
+/** Zips the files that exist in sourceFolder, keeping their relative paths */
+export function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Promise<void> {
+  const entries: ZipEntry[] = filesToInclude
+    .map((file): ZipEntry => [path.join(sourceFolder, file), file])
+    .filter(([filePath]) => fs.existsSync(filePath));
+  return createZip(zipPath, entries);
+}

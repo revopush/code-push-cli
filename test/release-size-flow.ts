@@ -5,6 +5,7 @@ import { strict as assert } from "assert";
 import * as path from "path";
 import * as sinon from "sinon";
 import * as cmdexec from "../script/command-executor";
+import * as bundler from "../script/platforms/react-native/bundler";
 import * as cli from "../script/types/cli";
 import * as uiLog from "../script/ui/log";
 import {
@@ -53,7 +54,7 @@ describe("command-executor release size checks", () => {
   afterEach(() => sinon.restore());
 
   function stubBundler({ bundleSize = 1, assetSize = 1, sourceMap = false }: BundlerOutput = {}): void {
-    sinon.stub(cmdexec, "spawn").callsFake((_command: string, args: string[]) => {
+    sinon.stub(bundler, "spawn").callsFake((_command: string, args: string[]) => {
       const bundlePath = argValue(args, "--bundle-output");
       const assetsDirectory = path.join(argValue(args, "--assets-dest"), "assets");
 

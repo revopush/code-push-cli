@@ -1,4 +1,4 @@
-// Hermes detection, hermesc lookup and bytecode version checks
+// Hermes detection, hermesc lookup, bytecode version checks and compilation
 
 import * as childProcess from "child_process";
 import * as fs from "fs";
@@ -6,11 +6,14 @@ import * as path from "path";
 import * as chalk from "chalk";
 import { coerce, gte } from "semver";
 
-import * as cli from "../types/cli";
-import { log } from "../ui/log";
-import { fileExists } from "./file-utils";
-import { getGradleHermesCommand, getGradleHermesEnabled, readGradleProperty } from "./gradle-utils";
-import { getReactNativePackagePath, getReactNativeVersion, getXcodeDotEnvValue } from "../react-native-utils";
+import * as cli from "../../types/cli";
+import { log } from "../../ui/log";
+import { downloadBlob, extractArchive, fileExists } from "../../utils/file-utils";
+import type AccountManager = require("../../management-sdk");
+import { getGradleHermesCommand, getGradleHermesEnabled, readGradleProperty } from "../android/gradle";
+import { getXcodeDotEnvValue } from "../ios/xcode";
+import { getReactNativePackagePath, getReactNativeVersion } from "./project";
+import { restoreSourceMapMetadata, SourceMapPaths } from "./source-maps";
 
 const OS_BIN = ({ win32: "win64-bin", darwin: "osx-bin" } as Record<string, string>)[process.platform] ?? "linux64-bin";
 
@@ -111,4 +114,108 @@ export function isBaseBytecodeCompatible(baseBytecode: string, hermesc: string):
         `Skipping -base-bytecode. Binaries on v${baseVersion} can't run this update.`;
   log(chalk.yellow(`\nWarning: ${warning}\n`));
   return false;
+}
+
+type BaseRelease = Pick<cli.IReleaseReactCommand, "appName" | "deploymentName" | "appStoreVersion" | "buildNumber">;
+
+export async function takeHermesBaseBytecode(
+  sdk: Pick<AccountManager, "getBaseRelease">,
+  { appName, deploymentName, appStoreVersion, buildNumber }: BaseRelease,
+  baseReleaseTmpFolder: string,
+  outputFolder: string,
+  bundleName: string
+): Promise<string | null> {
+  const { bundleBlobUrl } = await sdk.getBaseRelease(appName, deploymentName, appStoreVersion, buildNumber);
+  if (!bundleBlobUrl) {
+    return null;
+  }
+
+  const baseReleaseArchive = await downloadBlob(bundleBlobUrl, baseReleaseTmpFolder);
+  await extractArchive(baseReleaseArchive, baseReleaseTmpFolder);
+  const baseReleaseBundle = path.join(baseReleaseTmpFolder, path.basename(outputFolder), bundleName);
+
+  if (!fs.existsSync(baseReleaseBundle)) {
+    log(chalk.cyan("\nNo base release available...\n"));
+    return null;
+  }
+
+  return baseReleaseBundle;
+}
+
+export async function runHermesEmitBinaryCommand(
+  project: cli.NativeProject,
+  bundle: string,
+  sourceMaps: SourceMapPaths,
+  extraHermesFlags: string[],
+  baseBytecode: string | null
+): Promise<void> {
+  const bytecode = bundle + ".hbc";
+  const hermesc = await findHermesc(project);
+
+  const hermesArgs = [
+    ...(process.env.CODE_PUSH_NODE_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []),
+    "-emit-binary",
+    "-O",
+    "-out",
+    bytecode,
+    bundle,
+    "-w",
+    "-max-diagnostic-width=80",
+    ...extraHermesFlags,
+    "-output-source-map",
+  ];
+  if (baseBytecode && isBaseBytecodeCompatible(baseBytecode, hermesc)) {
+    hermesArgs.push("-base-bytecode", baseBytecode);
+  }
+
+  console.log(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
+  await runCommand("hermes", hermesc, hermesArgs);
+  await fs.promises.rename(bytecode, bundle);
+
+  await composeHermesSourceMaps(getComposeSourceMapsScript(project), bytecode + ".map", sourceMaps);
+}
+
+function getComposeSourceMapsScript({ platform, podFile }: cli.NativeProject): string {
+  // On iOS, react-native-xcode.sh lets COMPOSE_SOURCEMAP_PATH replace RN's script; an empty value is ignored
+  const override = platform === "ios" ? getXcodeDotEnvValue("COMPOSE_SOURCEMAP_PATH", podFile) : undefined;
+  const script = override || path.join(getReactNativePackagePath(), "scripts", "compose-source-maps.js");
+  if (!fs.existsSync(script)) {
+    throw new Error(`Source map compose script ${script} is not found`);
+  }
+  return script;
+}
+
+// Packager + Hermes source maps = final source map, as RN's build does
+async function composeHermesSourceMaps(composeScript: string, hermesSourceMap: string, sourceMaps: SourceMapPaths): Promise<void> {
+  if (!fs.existsSync(hermesSourceMap)) {
+    throw new Error(`sourcemap file ${hermesSourceMap} is not found`);
+  }
+
+  // Read before composing: on iOS the composed map overwrites the packager map
+  const packagerSourceMapJson = JSON.parse(await fs.promises.readFile(sourceMaps.packager, "utf8"));
+  await runCommand("compose-source-maps", "node", [composeScript, sourceMaps.packager, hermesSourceMap, "-o", sourceMaps.final]);
+  const restoredFields = await restoreSourceMapMetadata(sourceMaps.final, packagerSourceMapJson);
+  if (restoredFields.length > 0) {
+    console.log(`Restored packager source map metadata: ${restoredFields.join(", ")}`);
+  }
+  // Not part of the release
+  await fs.promises.unlink(hermesSourceMap);
+}
+
+function runCommand(name: string, command: string, args: string[]): Promise<void> {
+  console.log(`${command} ${args.join(" ")}`);
+  const child = childProcess.spawn(command, args);
+  child.stdout.on("data", (data: Buffer) => console.log(data.toString().trim()));
+  child.stderr.on("data", (data: Buffer) => console.error(data.toString().trim()));
+
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (exitCode: number, signal: string) => {
+      if (exitCode === 0) {
+        resolve();
+      } else {
+        reject(new Error(`"${name}" command failed (exitCode=${exitCode}, signal=${signal}).`));
+      }
+    });
+  });
 }

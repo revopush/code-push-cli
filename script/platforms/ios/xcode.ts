@@ -1,19 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as cli from "../types/cli";
-import { isValidVersion } from "../react-native-utils";
-import { fileExists } from "./file-utils";
+import * as dotenv from "dotenv";
+import * as cli from "../../types/cli";
+import { fileExists } from "../../utils/file-utils";
+import { isValidVersion } from "../../utils/validation-utils";
 
 const plist = require("plist");
 const xcode = require("xcode");
 
-export interface IosVersionInfo {
-  appVersion?: string;
-  buildNumber?: string;
-}
-
 /** Reads the app version from Info.plist, or from the Xcode project when the plist refers to its build settings */
-export async function getIosVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<IosVersionInfo> {
+export async function getIosVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<cli.ProjectVersionInfo> {
   let resolvedPlistFile: string = command.plistFile;
   if (resolvedPlistFile) {
     // If a plist file path is explicitly provided, then we don't
@@ -72,7 +68,7 @@ export async function getIosVersionInfo(command: cli.IReleaseReactCommand, proje
   return { appVersion: rawShortVersion, buildNumber: rawBundleVersion };
 }
 
-async function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, projectName: string): Promise<IosVersionInfo> {
+async function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, projectName: string): Promise<cli.ProjectVersionInfo> {
   const pbxprojFileName = "project.pbxproj";
   let resolvedPbxprojFile: string = command.xcodeProjectFile;
   if (resolvedPbxprojFile) {
@@ -121,4 +117,20 @@ async function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, 
   }
 
   return { appVersion: marketingVersion, buildNumber: String(currentProjectVersion) };
+}
+
+/**
+ * As react-native-xcode.sh sees it: .xcode.env.local, then .xcode.env, then the environment.
+ * The files sit next to the Podfile: --podFile, else PODFILE_DIR (set in Xcode builds), else ios/
+ */
+export function getXcodeDotEnvValue(key: string, podFile?: string): string | undefined {
+  const podfileDir = podFile ? path.dirname(podFile) : process.env.PODFILE_DIR || "ios";
+  for (const envFile of [".xcode.env.local", ".xcode.env"]) {
+    const envPath = path.join(podfileDir, envFile);
+    const value = fs.existsSync(envPath) ? dotenv.parse(fs.readFileSync(envPath))[key] : undefined;
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return process.env[key];
 }

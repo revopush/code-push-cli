@@ -1,9 +1,9 @@
 import { strict as assert } from "assert";
-import { getAndroidVersionInfo } from "../script/utils/gradle-utils";
+import { getAndroidVersionInfo } from "../script/platforms/android/gradle";
 import { useTempDirectory } from "./helpers/temp-directory";
 
-describe("gradle-utils", () => {
-  const project = useTempDirectory("gradle-utils", { chdir: true });
+describe("gradle", () => {
+  const project = useTempDirectory("gradle", { chdir: true });
 
   describe("getAndroidVersionInfo", () => {
     it("resolves a versionName that references a Gradle property", async () => {

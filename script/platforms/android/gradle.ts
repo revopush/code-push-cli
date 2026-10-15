@@ -8,18 +8,14 @@ import * as path from "path";
 import { promisify } from "util";
 import * as chalk from "chalk";
 
-import { fileExists } from "./file-utils";
-import { isValidVersion } from "../react-native-utils";
+import { ProjectVersionInfo } from "../../types/cli";
+import { fileExists } from "../../utils/file-utils";
+import { isValidVersion } from "../../utils/validation-utils";
 
 const g2js = require("gradle-to-js/lib/parser");
 const properties = require("properties");
 
 const exec = promisify(childProcess.exec);
-
-export interface AndroidVersionInfo {
-  appVersion?: string;
-  buildNumber?: string;
-}
 
 /** Raw values from the build script — literals or references to Gradle properties. */
 interface GradleVersionFields {
@@ -57,7 +53,7 @@ allprojects {
 
 // Every `gradleFile` parameter below is the app's build script or its directory; defaults to "android/app".
 
-export async function getAndroidVersionInfo(gradleFile?: string | null): Promise<AndroidVersionInfo> {
+export async function getAndroidVersionInfo(gradleFile?: string | null): Promise<ProjectVersionInfo> {
   const buildFile = findGradleBuildFile(gradleFile);
   if (!buildFile) {
     throw new Error(`Unable to find gradle file "${gradleFile ?? DEFAULT_APP_DIR}".`);

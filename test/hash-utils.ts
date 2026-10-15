@@ -6,7 +6,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { pipeline } from "stream/promises";
 import * as yauzl from "yauzl";
-import * as hashUtils from "../script/hash-utils";
+import * as hashUtils from "../script/utils/hash-utils";
 import { useTempDirectory } from "./helpers/temp-directory";
 
 const TEST_ZIP = path.join(__dirname, "resources", "test.zip");

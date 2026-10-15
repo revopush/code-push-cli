@@ -4,8 +4,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as jwt from "jsonwebtoken";
 import * as sinon from "sinon";
-import { generatePackageHashFromDirectory } from "../script/hash-utils";
-import sign from "../script/sign";
+import { generatePackageHashFromDirectory } from "../script/utils/hash-utils";
+import sign from "../script/utils/sign";
 import { useTempDirectory } from "./helpers/temp-directory";
 
 describe("sign", () => {
