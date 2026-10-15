@@ -38,24 +38,19 @@ export function copyFileToTmpDir(filePath: string): string {
  * Symlinks are listed as files, even when they point to a folder.
  */
 export async function listFiles(directoryPath: string): Promise<string[]> {
-  const files: string[] = [];
+  let files: string[] = [];
   let folders: string[] = [directoryPath];
   while (folders.length > 0) {
-    const subfolders: string[] = [];
-    const levelEntries = await Promise.all(folders.map((folder) => fs.promises.readdir(folder, { withFileTypes: true })));
-    levelEntries.forEach((entries, i) => {
-      for (const entry of entries) {
-        const entryPath = `${folders[i]}/${entry.name}`;
-        if (entry.isDirectory()) {
-          subfolders.push(entryPath);
-        } else {
-          files.push(entryPath);
-        }
-      }
-    });
-    folders = subfolders;
+    const entries = (await Promise.all(folders.map(readFolder))).flat();
+    files = files.concat(entries.filter((entry) => !entry.isFolder).map((entry) => entry.path));
+    folders = entries.filter((entry) => entry.isFolder).map((entry) => entry.path);
   }
   return files;
+}
+
+async function readFolder(folder: string): Promise<{ path: string; isFolder: boolean }[]> {
+  const entries = await fs.promises.readdir(folder, { withFileTypes: true });
+  return entries.map((entry) => ({ path: `${folder}/${entry.name}`, isFolder: entry.isDirectory() }));
 }
 
 export function fileDoesNotExistOrIsDirectory(path: string): boolean {
