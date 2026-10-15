@@ -294,16 +294,12 @@ function deleteFolder(folderPath: string): Promise<void> {
   return Q(fs.promises.rm(folderPath, { recursive: true, force: true, maxRetries: 3 }));
 }
 
-// Deletes the react-* entries the React Native bundler leaves in the temp folder
-function deleteReactTempFolders(): Promise<void> {
+async function deleteReactTempFolders(): globalThis.Promise<void> {
   const tempFolder: string = os.tmpdir();
-  // Like the rimraf glob this replaces, an unreadable temp folder means there is nothing to delete
-  return Q(fs.promises.readdir(tempFolder).catch((): string[] => []))
-    .then((names: string[]) => {
-      const reactFolders: string[] = names.filter((name) => name.startsWith("react-"));
-      return Q.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
-    })
-    .then(() => {});
+  // An unreadable temp folder means there is nothing to delete
+  const names: string[] = await fs.promises.readdir(tempFolder).catch((): string[] => []);
+  const reactFolders: string[] = names.filter((name) => name.startsWith("react-"));
+  await Q.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
 }
 
 function deploymentAdd(command: cli.IDeploymentAddCommand): Promise<void> {
