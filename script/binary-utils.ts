@@ -2,7 +2,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
 import * as chalk from "chalk";
-import { log } from "./command-executor";
+import { log } from "./ui/log";
 import * as os from "os";
 import * as yazl from "yazl";
 import * as yauzl from "yauzl";

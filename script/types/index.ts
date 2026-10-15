@@ -14,7 +14,7 @@ export {
   AccessKey as ServerAccessKey,
   UpdateMetrics,
   BaseRelease,
-} from "../script/types/rest-definitions";
+} from "./rest-definitions";
 
 export interface CodePushError {
   message: string;

@@ -7,7 +7,7 @@ import * as chalk from "chalk";
 import { coerce, gte } from "semver";
 
 import * as cli from "../types/cli";
-import { log } from "../command-executor";
+import { log } from "../ui/log";
 import { fileExists } from "./file-utils";
 import { getGradleHermesCommand, getGradleHermesEnabled, readGradleProperty } from "./gradle-utils";
 import { getReactNativePackagePath, getReactNativeVersion, getXcodeDotEnvValue } from "../react-native-utils";

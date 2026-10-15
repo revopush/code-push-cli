@@ -2,7 +2,6 @@
   "name": "@revopush/code-push-cli",
   "version": "0.0.15",
   "description": "Management CLI for the CodePush service",
-  "main": "./script/cli.js",
   "scripts": {
     "start": "node ./bin/script/cli.js",
     "build": "tsc",

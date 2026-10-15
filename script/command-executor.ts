@@ -27,7 +27,7 @@ import {
   PackageInfo,
   Session,
   UpdateMetrics,
-} from "../script/types";
+} from "./types";
 import {
   getMinifyParams,
   getReactNativePackagePath,
@@ -53,12 +53,13 @@ import AccountManager = require("./management-sdk");
 import wordwrap = require("wordwrap");
 import { ReactNativePackageInfo } from "./types/rest-definitions";
 import { getExpoCliPath } from "./expo-utils";
+import { log } from "./ui/log";
+import { confirm, requestAccessKey } from "./ui/prompt";
+import { createUploadProgress } from "./ui/progress";
 
 const opener = require("opener");
 
 const plist = require("plist");
-const progress = require("progress");
-const prompt = require("prompt");
 
 const Table = require("cli-table");
 
@@ -91,45 +92,11 @@ export interface PackageWithMetrics {
   metrics?: UpdateMetricsWithTotalActive;
 }
 
-export const log = (message: string | any): void => console.log(message);
 export let sdk: AccountManager;
 export const spawn = childProcess.spawn;
 export const execSync = childProcess.execSync;
 
 let connectionInfo: ILoginConnectionInfo;
-
-export const confirm = (message: string = "Are you sure?"): Promise<boolean> => {
-  message += " (y/N):";
-  return new Promise<boolean>((resolve): void => {
-    prompt.message = "";
-    prompt.delimiter = "";
-
-    prompt.start();
-
-    prompt.get(
-      {
-        properties: {
-          response: {
-            description: chalk.cyan(message),
-          },
-        },
-      },
-      (err: any, result: any): void => {
-        const accepted = result.response && result.response.toLowerCase() === "y";
-        const rejected = !result.response || result.response.toLowerCase() === "n";
-
-        if (accepted) {
-          resolve(true);
-        } else {
-          if (!rejected) {
-            console.log('Invalid response: "' + result.response + '"');
-          }
-          resolve(false);
-        }
-      }
-    );
-  });
-};
 
 async function accessKeyAdd(command: cli.IAccessKeyAddCommand): Promise<void> {
   const accessKey: AccessKey = await sdk.addAccessKey(command.name, command.ttl);
@@ -1274,7 +1241,7 @@ async function compileHermesBundle(
   baseReleaseTmpFolder: string
 ): Promise<void> {
   await createEmptyTempReleaseFolder(baseReleaseTmpFolder);
-  const baseBytecode = await takeHermesBaseBytecode(command, baseReleaseTmpFolder, outputFolder, bundleName);
+  const baseBytecode = await takeHermesBaseBytecode(sdk, command, baseReleaseTmpFolder, outputFolder, bundleName);
 
   log(chalk.cyan("\nRunning hermes compiler...\n"));
   const bundle = path.join(outputFolder, bundleName);
@@ -1581,18 +1548,7 @@ const doRelease = async (
     isSingleFilePackage = false;
   }
 
-  let lastTotalProgress = 0;
-  const progressBar = new progress("Upload progress:[:bar] :percent :etas", {
-    complete: "=",
-    incomplete: " ",
-    width: 50,
-    total: 100,
-  });
-
-  const uploadProgress = (currentProgress: number): void => {
-    progressBar.tick(currentProgress - lastTotalProgress);
-    lastTotalProgress = currentProgress;
-  };
+  const uploadProgress = createUploadProgress();
 
   try {
     await sdk.isAuthenticated(true);
@@ -1636,19 +1592,7 @@ const doNativeRelease = async (releaseCommand: cli.IReleaseReactCommand): Promis
     buildNumber: releaseCommand.buildNumber,
   };
 
-  let lastTotalProgress = 0;
-
-  const progressBar = new progress("Upload progress:[:bar] :percent :etas", {
-    complete: "=",
-    incomplete: " ",
-    width: 50,
-    total: 100,
-  });
-
-  const uploadProgress = (currentProgress: number): void => {
-    progressBar.tick(currentProgress - lastTotalProgress);
-    lastTotalProgress = currentProgress;
-  };
+  const uploadProgress = createUploadProgress();
 
   try {
     await sdk.isAuthenticated(true);
@@ -1677,32 +1621,6 @@ async function rollback(command: cli.IRollbackCommand): Promise<void> {
 
   await sdk.rollback(command.appName, command.deploymentName, command.targetRelease || undefined);
   log('Successfully performed a rollback on the "' + command.deploymentName + '" deployment of the "' + command.appName + '" app.');
-}
-
-function requestAccessKey(): Promise<string> {
-  return new Promise<string>((resolve): void => {
-    prompt.message = "";
-    prompt.delimiter = "";
-
-    prompt.start();
-
-    prompt.get(
-      {
-        properties: {
-          response: {
-            description: chalk.cyan("Enter your access key: "),
-          },
-        },
-      },
-      (err: any, result: any): void => {
-        if (err) {
-          resolve(null);
-        } else {
-          resolve(result.response.trim());
-        }
-      }
-    );
-  });
 }
 
 export const runReactNativeBundleCommand = async (
