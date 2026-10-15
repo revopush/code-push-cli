@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { UpdateMetrics } from "./rest-definitions";
+
 export {
   AccessKeyRequest,
   Account,
@@ -34,3 +36,11 @@ export interface Session {
 }
 
 export type Headers = { [headerName: string]: string };
+
+export interface UpdateMetricsWithTotalActive extends UpdateMetrics {
+  totalActive: number;
+}
+
+export interface PackageWithMetrics {
+  metrics?: UpdateMetricsWithTotalActive;
+}
