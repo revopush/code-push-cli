@@ -31,7 +31,7 @@ export default async function sign(privateKeyPath: string, updateContentsPath: s
       updateContentsPath = copyFileToTmpDir(updateContentsPath);
     }
   } catch (error) {
-    Promise.reject(error);
+    return Promise.reject(error);
   }
 
   const signatureFilePath: string = path.join(updateContentsPath, METADATA_FILE_NAME);

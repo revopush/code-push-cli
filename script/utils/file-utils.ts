@@ -1,7 +1,6 @@
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
-import * as rimraf from "rimraf";
-import * as temp from "temp";
 import * as yauzl from "yauzl";
 import { pipeline } from "node:stream/promises";
 
@@ -25,15 +24,38 @@ export function fileExists(file: string): boolean {
 
 export function copyFileToTmpDir(filePath: string): string {
   if (!isDirectory(filePath)) {
-    const outputFolderPath: string = temp.mkdirSync("code-push");
-    rimraf.sync(outputFolderPath);
-    fs.mkdirSync(outputFolderPath);
+    const outputFolderPath: string = fs.mkdtempSync(path.join(os.tmpdir(), "code-push"));
 
     const outputFilePath: string = path.join(outputFolderPath, path.basename(filePath));
     fs.writeFileSync(outputFilePath, fs.readFileSync(filePath));
 
     return outputFolderPath;
   }
+}
+
+/**
+ * Lists the files under a folder, level by level, with paths joined by "/".
+ * Symlinks are listed as files, even when they point to a folder.
+ */
+export async function listFiles(directoryPath: string): Promise<string[]> {
+  const files: string[] = [];
+  let folders: string[] = [directoryPath];
+  while (folders.length > 0) {
+    const subfolders: string[] = [];
+    const levelEntries = await Promise.all(folders.map((folder) => fs.promises.readdir(folder, { withFileTypes: true })));
+    levelEntries.forEach((entries, i) => {
+      for (const entry of entries) {
+        const entryPath = `${folders[i]}/${entry.name}`;
+        if (entry.isDirectory()) {
+          subfolders.push(entryPath);
+        } else {
+          files.push(entryPath);
+        }
+      }
+    });
+    folders = subfolders;
+  }
+  return files;
 }
 
 export function fileDoesNotExistOrIsDirectory(path: string): boolean {

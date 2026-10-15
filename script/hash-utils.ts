@@ -12,18 +12,9 @@ import * as path from "path";
 import * as q from "q";
 import * as stream from "stream";
 
-// Do not throw an exception if either of these modules are missing, as they may not be needed by the
-// consumer of this file.
-// - recursiveFs: Only required for hashing of directories
-// - yauzl: Only required for in-memory hashing of zip files
-let recursiveFs, yauzl;
+import * as yauzl from "yauzl";
 
-try {
-  recursiveFs = require("recursive-fs");
-} catch (e) {}
-try {
-  yauzl = require("yauzl");
-} catch (e) {}
+import { listFiles } from "./utils/file-utils";
 
 import Promise = q.Promise;
 const HASH_ALGORITHM = "sha256";
@@ -102,18 +93,11 @@ export function generatePackageManifestFromZip(filePath: string): Promise<Packag
 }
 
 export function generatePackageManifestFromDirectory(directoryPath: string, basePath: string): Promise<PackageManifest> {
-  const deferred: q.Deferred<PackageManifest> = q.defer<PackageManifest>();
   const fileHashesMap = new Map<string, string>();
 
-  recursiveFs.readdirr(directoryPath, (error?: any, directories?: string[], files?: string[]): void => {
-    if (error) {
-      deferred.reject(error);
-      return;
-    }
-
-    if (!files || files.length === 0) {
-      deferred.reject("Error: Can't sign the release because no files were found.");
-      return;
+  return q(listFiles(directoryPath)).then((files: string[]): Promise<PackageManifest> => {
+    if (files.length === 0) {
+      return q.reject<PackageManifest>("Error: Can't sign the release because no files were found.");
     }
 
     // Hash the files sequentially, because streaming them in parallel is not necessarily faster
@@ -128,14 +112,8 @@ export function generatePackageManifestFromDirectory(directoryPath: string, base
       });
     }, q(<void>null));
 
-    generateManifestPromise
-      .then(() => {
-        deferred.resolve(new PackageManifest(fileHashesMap));
-      }, deferred.reject)
-      .done();
+    return generateManifestPromise.then(() => new PackageManifest(fileHashesMap));
   });
-
-  return deferred.promise;
 }
 
 export function hashFile(filePath: string): Promise<string> {
