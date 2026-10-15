@@ -5,7 +5,6 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import superagent = require("superagent");
-import * as yazl from "yazl";
 
 import {
   AccessKey,
@@ -24,7 +23,7 @@ import {
   BaseRelease,
 } from "./types";
 import { ReactNativePackageInfo } from "./types/rest-definitions";
-import { listFiles, normalizePath } from "./utils/file-utils";
+import { createZip, listFiles, normalizePath } from "./utils/file-utils";
 
 const packageJson = require("../../package.json");
 
@@ -317,10 +316,39 @@ class AccountManager {
     uploadProgressCallback?: (progress: number) => void
   ): Promise<void> {
     const packageFile: PackageFile = await this.packageFileFromPath(filePath);
+    return this.uploadPackage(
+      `/apps/${appName}/deployments/${deploymentName}/release`,
+      packageFile,
+      updateMetadata,
+      uploadProgressCallback
+    );
+  }
+
+  public releaseNative(
+    appName: string,
+    deploymentName: string,
+    filePath: string,
+    updateMetadata: ReactNativePackageInfo,
+    uploadProgressCallback?: (progress: number) => void
+  ): Promise<void> {
+    // The metadata zip is created for this upload, so it's always deleted afterwards
+    const packageFile: PackageFile = { isTemporary: true, path: filePath };
+    return this.uploadPackage(
+      `/apps/${appName}/deployments/${deploymentName}/nativerelease`,
+      packageFile,
+      updateMetadata,
+      uploadProgressCallback
+    );
+  }
+
+  private uploadPackage(
+    endpoint: string,
+    packageFile: PackageFile,
+    updateMetadata: PackageInfo,
+    uploadProgressCallback?: (progress: number) => void
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const request: superagent.Request<any> = superagent.post(
-        this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/release`])
-      );
+      const request: superagent.Request<any> = superagent.post(this._serverUrl + urlEncode([endpoint]));
 
       this.attachCredentials(request);
 
@@ -352,73 +380,10 @@ class AccountManager {
               body = JSON.parse(res.text);
             } catch {}
 
-            if (body) {
-              reject({
-                message: body.message,
-                statusCode: res && res.status,
-              } as CodePushError);
-            } else {
-              reject({
-                message: res.text,
-                statusCode: res && res.status,
-              } as CodePushError);
-            }
-          }
-        });
-    });
-  }
-
-  public releaseNative(
-    appName: string,
-    deploymentName: string,
-    filePath: string,
-    updateMetadata: ReactNativePackageInfo,
-    uploadProgressCallback?: (progress: number) => void
-  ): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const request: superagent.Request<any> = superagent.post(
-        this._serverUrl + urlEncode([`/apps/${appName}/deployments/${deploymentName}/nativerelease`])
-      );
-
-      this.attachCredentials(request);
-
-      const file: any = fs.createReadStream(filePath);
-      request
-        .attach("package", file)
-        .field("packageInfo", JSON.stringify(updateMetadata))
-        .on("progress", (event: any) => {
-          if (uploadProgressCallback && event && event.total > 0) {
-            const currentProgress: number = (event.loaded / event.total) * 100;
-            uploadProgressCallback(currentProgress);
-          }
-        })
-        .end((err: any, res: superagent.Response) => {
-          fs.unlinkSync(filePath);
-
-          if (err) {
-            reject(this.getCodePushError(err, res));
-            return;
-          }
-
-          if (res.ok) {
-            resolve(null);
-          } else {
-            let body;
-            try {
-              body = JSON.parse(res.text);
-            } catch {}
-
-            if (body) {
-              reject({
-                message: body.message,
-                statusCode: res && res.status,
-              } as CodePushError);
-            } else {
-              reject({
-                message: res.text,
-                statusCode: res && res.status,
-              } as CodePushError);
-            }
+            reject({
+              message: body ? body.message : res.text,
+              statusCode: res && res.status,
+            } as CodePushError);
           }
         });
     });
@@ -464,32 +429,14 @@ class AccountManager {
     }
 
     const files: string[] = await listFiles(filePath);
-    return new Promise<PackageFile>((resolve, reject) => {
-      const baseDirectoryPath = path.dirname(filePath);
-      const fileName: string = this.generateRandomFilename(15) + ".zip";
-      const zipFile = new yazl.ZipFile();
-      const writeStream: fs.WriteStream = fs.createWriteStream(fileName);
-
-      // yazl reports unreadable input files on the ZipFile itself
-      zipFile.on("error", reject);
-      zipFile.outputStream
-        .pipe(writeStream)
-        .on("error", (error: Error): void => {
-          reject(error);
-        })
-        .on("close", (): void => {
-          resolve({ isTemporary: true, path: path.join(process.cwd(), fileName) });
-        });
-
-      for (const file of files) {
-        // yazl does not like backslash (\) in the metadata path.
-        const relativePath: string = normalizePath(path.relative(baseDirectoryPath, file));
-
-        zipFile.addFile(file, relativePath);
-      }
-
-      zipFile.end();
-    });
+    const baseDirectoryPath: string = path.dirname(filePath);
+    const zipPath: string = path.join(process.cwd(), this.generateRandomFilename(15) + ".zip");
+    await createZip(
+      zipPath,
+      // yazl does not like backslash (\) in the metadata path.
+      files.map((file) => [file, normalizePath(path.relative(baseDirectoryPath, file))])
+    );
+    return { isTemporary: true, path: zipPath };
   }
 
   private generateRandomFilename(length: number): string {

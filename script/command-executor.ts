@@ -843,72 +843,16 @@ function printReleaseSizeWarnings(analysis: ReleaseSizeAnalysis | null, force: b
   }
 }
 
-export const releaseExpo = async (command: cli.IReleaseReactCommand): Promise<void> => {
-  const { platform, bundleName, projectName } = validateReactReleaseCommand(command, {
-    resolveEntryFile: false,
-  });
+type ReactBundler = "react-native" | "expo";
 
-  const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
-  const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
-  const baseReleaseTmpFolder: string = path.join(os.tmpdir(), "CodePushBaseRelease");
-  // releaseCommand below is `command` itself, and it overwrites command.outputDir with the
-  // resolved path -- so capture whether the user actually passed one before that happens.
-  const isTempOutputFolder: boolean = !command.outputDir;
+export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => releaseReactBundle(command, "react-native");
 
-  const releaseCommand: cli.IReleaseReactCommand = command;
-  releaseCommand.package = outputFolder;
-  releaseCommand.outputDir = outputFolder;
-  releaseCommand.bundleName = bundleName;
-  await sdk.getDeployment(command.appName, command.deploymentName);
+export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> => releaseReactBundle(command, "expo");
 
-  // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
-  // via --buildNumber. Auto-detection only applies to release-native where the binary
-  // build number is the natural targeting key.
-  const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
-
-  if (!command.sourcemapOutput) {
-    await createEmptyTempReleaseFolder(sourcemapOutputFolder);
-  }
-
-  throwForInvalidSemverRange(appVersion);
-  releaseCommand.appStoreVersion = appVersion;
-
-  await createEmptyTempReleaseFolder(outputFolder);
-  await deleteReactTempFolders();
-
-  const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
-  await runExpoExportEmbedCommand(bundleOptions);
-
-  if (isHermes) {
-    await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
-  }
-
-  const releaseSizeAnalysis: ReleaseSizeAnalysis | null = validateGeneratedReleaseSizes(command, outputFolder, bundleName, platform);
-
-  if (command.privateKeyPath) {
-    log(chalk.cyan("\nSigning the bundle:\n"));
-    await sign(command.privateKeyPath, outputFolder);
-  } else {
-    console.log("private key was not provided");
-  }
-
-  log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
-  await releaseReactNative(releaseCommand, () => printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false));
-
-  if (isTempOutputFolder) {
-    await deleteFolder(outputFolder);
-  }
-
-  if (!command.sourcemapOutput) {
-    await deleteFolder(sourcemapOutputFolder);
-  }
-
-  await deleteFolder(baseReleaseTmpFolder);
-};
-
-export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<void> => {
+async function releaseReactBundle(command: cli.IReleaseReactCommand, bundler: ReactBundler): Promise<void> {
   const { platform, bundleName, entryFile, projectName } = validateReactReleaseCommand(command, {
-    resolveEntryFile: true,
+    // Only the react-native bundler takes the JS entry file; Expo resolves it itself
+    resolveEntryFile: bundler === "react-native",
   });
 
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
@@ -926,9 +870,8 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
   // This validation helps to save about 1 minute or more in case user has typed wrong app or deployment name.
   await sdk.getDeployment(command.appName, command.deploymentName);
 
-  // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
-  // via --buildNumber. Auto-detection only applies to release-native where the binary
-  // build number is the natural targeting key.
+  // buildNumber is NOT auto-detected here — it must be passed explicitly via --buildNumber.
+  // Auto-detection only applies to release-native where the binary build number is the natural targeting key.
   const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
 
   if (!command.sourcemapOutput) {
@@ -944,7 +887,11 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
   await deleteReactTempFolders();
 
   const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
-  await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
+  if (bundler === "expo") {
+    await runExpoExportEmbedCommand(bundleOptions);
+  } else {
+    await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
+  }
 
   if (isHermes) {
     await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
@@ -960,7 +907,9 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
   }
 
   log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
-  await releaseReactNative(releaseCommand, () => printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false));
+  await doRelease(releaseCommand, getReactNativePackageInfo(releaseCommand), () =>
+    printReleaseSizeWarnings(releaseSizeAnalysis, command.force || false)
+  );
 
   if (isTempOutputFolder) {
     await deleteFolder(outputFolder);
@@ -971,7 +920,7 @@ export const releaseReact = async (command: cli.IReleaseReactCommand): Promise<v
   }
 
   await deleteFolder(baseReleaseTmpFolder);
-};
+}
 
 export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise<void> => {
   const platform: string = command.platform.toLowerCase();
@@ -1076,9 +1025,9 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
   }
 };
 
-const releaseReactNative = async (command: cli.IReleaseReactCommand, onReleaseCompleted?: () => void): Promise<void> => {
-  // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
-  const updateMetadata: ReactNativePackageInfo = {
+// For an initial release we explicitly define it as optional, disabled, without rollout, with a special description
+function getReactNativePackageInfo(command: cli.IReleaseReactCommand): ReactNativePackageInfo {
+  return {
     description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
     isDisabled: command.initial ? true : command.disabled,
     isMandatory: command.initial ? false : command.mandatory,
@@ -1089,9 +1038,7 @@ const releaseReactNative = async (command: cli.IReleaseReactCommand, onReleaseCo
     appVersion: command.appStoreVersion,
     buildNumber: command.buildNumber,
   };
-
-  return doRelease(command, updateMetadata, onReleaseCompleted);
-};
+}
 
 const doRelease = async (
   command: cli.IReleaseCommand | cli.IReleaseReactCommand,
@@ -1144,17 +1091,7 @@ const doNativeRelease = async (releaseCommand: cli.IReleaseReactCommand): Promis
 
   const filePath: string = releaseCommand.package;
 
-  const updateMetadata: ReactNativePackageInfo = {
-    description: releaseCommand.initial ? `Zero release for v${releaseCommand.appStoreVersion}` : releaseCommand.description,
-    isDisabled: releaseCommand.initial ? true : releaseCommand.disabled,
-    isMandatory: releaseCommand.initial ? false : releaseCommand.mandatory,
-    isInitial: releaseCommand.initial,
-    bundleName: releaseCommand.bundleName,
-    outputDir: releaseCommand.outputDir,
-    rollout: releaseCommand.initial ? undefined : releaseCommand.rollout,
-    appVersion: releaseCommand.appStoreVersion,
-    buildNumber: releaseCommand.buildNumber,
-  };
+  const updateMetadata: ReactNativePackageInfo = getReactNativePackageInfo(releaseCommand);
 
   const uploadProgress = createUploadProgress();
 

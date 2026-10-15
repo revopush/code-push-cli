@@ -225,6 +225,12 @@ describe("hermes-utils", () => {
       assert.equal(await isHermesEnabled({ platform: "ios" }), false);
     });
 
+    it("looks in ios/ when the parser passes no Podfile (null)", async () => {
+      project.write("ios/Podfile", "use_react_native!(\n  :hermes_enabled => false\n)\n");
+
+      assert.equal(await isHermesEnabled({ platform: "ios", podFile: null }), false);
+    });
+
     it("reads the USE_HERMES build setting pod install writes into the Xcode project", async () => {
       project.write("ios/Podfile", "use_react_native!(\n  :hermes_enabled => true\n)\n");
       project.write("ios/App.xcodeproj/project.pbxproj", "buildSettings = {\n\t\t\t\tUSE_HERMES = false;\n};\n");

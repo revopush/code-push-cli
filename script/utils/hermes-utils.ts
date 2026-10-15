@@ -25,13 +25,15 @@ export async function isHermesEnabled({ platform, gradleFile, podFile }: cli.Nat
 }
 
 // pod install writes USE_HERMES into the Xcode project since RN 0.75; older apps set :hermes_enabled in the Podfile
-function getIosHermesEnabled(podFile = path.join("ios", "Podfile")): boolean | undefined {
-  const iosDir = path.dirname(podFile);
+function getIosHermesEnabled(podFile?: string | null): boolean | undefined {
+  // The parser passes null when --podFile isn't given
+  const podfilePath: string = podFile || path.join("ios", "Podfile");
+  const iosDir = path.dirname(podfilePath);
   const xcodeProjects = fs.existsSync(iosDir) ? fs.readdirSync(iosDir).filter((file) => file.endsWith(".xcodeproj")) : [];
   const pbxprojs = xcodeProjects.map((project) => path.join(iosDir, project, "project.pbxproj"));
   const value =
     matchInFiles(pbxprojs, /\bUSE_HERMES = "?(true|false)"?;/) ??
-    matchInFiles([podFile], /^[^#\n]*:?hermes_enabled\s*(?:=>|:)\s*(true|false)/m);
+    matchInFiles([podfilePath], /^[^#\n]*:?hermes_enabled\s*(?:=>|:)\s*(true|false)/m);
   return value === undefined ? undefined : value === "true";
 }
 

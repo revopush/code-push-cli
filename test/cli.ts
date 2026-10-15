@@ -87,9 +87,26 @@ function releaseReactCommand(overrides: Partial<cli.IReleaseReactCommand> = {}):
     mandatory: false,
     rollout: null,
     platform: "ios",
-    // Defaults the argument parser sets
+    // Defaults the argument parser sets: options that aren't given are null, not undefined
+    buildNumber: null,
+    bundleName: null,
+    development: false,
+    disabled: false,
+    entryFile: null,
     extraBundlerOptions: [],
     extraHermesFlags: [],
+    force: false,
+    gradleFile: null,
+    initial: false,
+    noDuplicateReleaseError: false,
+    outputDir: null,
+    plistFile: null,
+    plistFilePrefix: null,
+    podFile: null,
+    privateKeyPath: null,
+    sourcemapOutput: null,
+    useHermes: false,
+    xcodeProjectFile: null,
     ...overrides,
   };
 }

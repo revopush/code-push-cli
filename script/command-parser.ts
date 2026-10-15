@@ -117,6 +117,198 @@ function accessKeyRemove(commandName: string, yargs: yargs.Argv): void {
   addCommonConfiguration(yargs);
 }
 
+// Options shared by release-react and release-expo
+function addReactReleaseOptions(yargs: yargs.Argv): void {
+  yargs
+    .option("bundleName", {
+      alias: "b",
+      default: null,
+      demand: false,
+      description:
+        'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS) or "index.android.bundle" (Android)',
+      type: "string",
+    })
+    .option("deploymentName", {
+      alias: "d",
+      default: "Staging",
+      demand: false,
+      description: "Deployment to release the update to",
+      type: "string",
+    })
+    .option("description", {
+      alias: "des",
+      default: null,
+      demand: false,
+      description: "Description of the changes made to the app with this release",
+      type: "string",
+    })
+    .option("development", {
+      alias: "dev",
+      default: false,
+      demand: false,
+      description: "Specifies whether to generate a dev or release build",
+      type: "boolean",
+    })
+    .option("disabled", {
+      alias: "x",
+      default: false,
+      demand: false,
+      description: "Specifies whether this release should be immediately downloadable",
+      type: "boolean",
+    })
+    .option("entryFile", {
+      alias: "e",
+      default: null,
+      demand: false,
+      description:
+        'Path to the app\'s entry Javascript file. If omitted, "index.<platform>.js" and then "index.js" will be used (if they exist)',
+      type: "string",
+    })
+    .option("gradleFile", {
+      alias: "g",
+      default: null,
+      demand: false,
+      description: "Path to the gradle file which specifies the binary version you want to target this release at (android only).",
+    })
+    .option("initial", {
+      alias: "i",
+      default: false,
+      demand: false,
+      description: "Specifies whether release is initial (base) for given targetBinaryVersion.",
+      type: "boolean",
+    })
+    .option("mandatory", {
+      alias: "m",
+      default: false,
+      demand: false,
+      description: "Specifies whether this release should be considered mandatory",
+      type: "boolean",
+    })
+    .option("noDuplicateReleaseError", {
+      default: false,
+      demand: false,
+      description:
+        "When this flag is set, releasing a package that is identical to the latest release will produce a warning instead of an error",
+      type: "boolean",
+    })
+    .option("plistFile", {
+      alias: "p",
+      default: null,
+      demand: false,
+      description: "Path to the plist file which specifies the binary version you want to target this release at (iOS only).",
+    })
+    .option("plistFilePrefix", {
+      alias: "pre",
+      default: null,
+      demand: false,
+      description: "Prefix to append to the file name when attempting to find your app's Info.plist file (iOS only).",
+    })
+    .option("rollout", {
+      alias: "r",
+      default: "100%",
+      demand: false,
+      description: "Percentage of users this release should be immediately available to",
+      type: "string",
+    })
+    .option("sourcemapOutput", {
+      alias: "s",
+      default: null,
+      demand: false,
+      description:
+        "Path to where the sourcemap for the resulting bundle should be written. If omitted, a sourcemap will not be generated.",
+      type: "string",
+    })
+    .option("targetBinaryVersion", {
+      alias: "t",
+      default: null,
+      demand: false,
+      description:
+        'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS) or "build.gradle" (Android) files.',
+      type: "string",
+    })
+    .option("outputDir", {
+      alias: "o",
+      default: null,
+      demand: false,
+      description: "Path to where the bundle and sourcemap should be written. If omitted, a bundle and sourcemap will not be written.",
+      type: "string",
+    })
+    .option("useHermes", {
+      alias: "h",
+      default: false,
+      demand: false,
+      description: "Enable hermes and bypass automatic checks",
+      type: "boolean",
+    })
+    .option("podFile", {
+      alias: "pod",
+      default: null,
+      demand: false,
+      description: "Path to the cocopods config file (iOS only).",
+      type: "string",
+    })
+    .option("extraHermesFlags", {
+      alias: "hf",
+      default: [],
+      demand: false,
+      description: "Flags that get passed to Hermes, JavaScript to bytecode compiler. Can be specified multiple times.",
+      type: "array",
+    })
+    .option("privateKeyPath", {
+      alias: "k",
+      default: null,
+      demand: false,
+      description: "Path to private key used for code signing.",
+      type: "string",
+    })
+    .option("xcodeProjectFile", {
+      alias: "xp",
+      default: null,
+      demand: false,
+      description: "Path to the Xcode project or project.pbxproj file",
+      type: "string",
+    })
+    .option("xcodeTargetName", {
+      alias: "xt",
+      default: undefined,
+      demand: false,
+      description: "Name of target (PBXNativeTarget) which specifies the binary version you want to target this release at (iOS only)",
+      type: "string",
+    })
+    .option("buildConfigurationName", {
+      alias: "c",
+      default: undefined,
+      demand: false,
+      description:
+        "Name of build configuration which specifies the binary version you want to target this release at. For example, 'Debug' or 'Release' (iOS only)",
+      type: "string",
+    })
+    .option("extraBundlerOption", {
+      alias: "eo",
+      default: [],
+      demand: false,
+      description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
+      type: "array",
+    })
+    .option("force", {
+      default: false,
+      demand: false,
+      description: "Release even when generated assets exceed the 500 KiB per-file limit",
+      type: "boolean",
+    })
+    .option("buildNumber", {
+      alias: "bn",
+      default: null,
+      demand: false,
+      description:
+        "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
+      type: "string",
+    })
+    .check((argv: any): any => {
+      return checkValidReleaseOptions(argv);
+    });
+}
+
 function addCommonConfiguration(yargs: yargs.Argv): void {
   yargs
     .wrap(/*columnLimit*/ null)
@@ -689,196 +881,9 @@ yargs
       .example(
         "release-react MyApp android -d Production",
         'Releases the React Native Android project in the current working directory to the "MyApp" app\'s "Production" deployment'
-      )
-      .option("bundleName", {
-        alias: "b",
-        default: null,
-        demand: false,
-        description:
-          'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS) or "index.android.bundle" (Android)',
-        type: "string",
-      })
-      .option("deploymentName", {
-        alias: "d",
-        default: "Staging",
-        demand: false,
-        description: "Deployment to release the update to",
-        type: "string",
-      })
-      .option("description", {
-        alias: "des",
-        default: null,
-        demand: false,
-        description: "Description of the changes made to the app with this release",
-        type: "string",
-      })
-      .option("development", {
-        alias: "dev",
-        default: false,
-        demand: false,
-        description: "Specifies whether to generate a dev or release build",
-        type: "boolean",
-      })
-      .option("disabled", {
-        alias: "x",
-        default: false,
-        demand: false,
-        description: "Specifies whether this release should be immediately downloadable",
-        type: "boolean",
-      })
-      .option("entryFile", {
-        alias: "e",
-        default: null,
-        demand: false,
-        description:
-          'Path to the app\'s entry Javascript file. If omitted, "index.<platform>.js" and then "index.js" will be used (if they exist)',
-        type: "string",
-      })
-      .option("gradleFile", {
-        alias: "g",
-        default: null,
-        demand: false,
-        description: "Path to the gradle file which specifies the binary version you want to target this release at (android only).",
-      })
-      .option("initial", {
-        alias: "i",
-        default: false,
-        demand: false,
-        description: "Specifies whether release is initial (base) for given targetBinaryVersion.",
-        type: "boolean",
-      })
-      .option("mandatory", {
-        alias: "m",
-        default: false,
-        demand: false,
-        description: "Specifies whether this release should be considered mandatory",
-        type: "boolean",
-      })
-      .option("noDuplicateReleaseError", {
-        default: false,
-        demand: false,
-        description:
-          "When this flag is set, releasing a package that is identical to the latest release will produce a warning instead of an error",
-        type: "boolean",
-      })
-      .option("plistFile", {
-        alias: "p",
-        default: null,
-        demand: false,
-        description: "Path to the plist file which specifies the binary version you want to target this release at (iOS only).",
-      })
-      .option("plistFilePrefix", {
-        alias: "pre",
-        default: null,
-        demand: false,
-        description: "Prefix to append to the file name when attempting to find your app's Info.plist file (iOS only).",
-      })
-      .option("rollout", {
-        alias: "r",
-        default: "100%",
-        demand: false,
-        description: "Percentage of users this release should be immediately available to",
-        type: "string",
-      })
-      .option("sourcemapOutput", {
-        alias: "s",
-        default: null,
-        demand: false,
-        description:
-          "Path to where the sourcemap for the resulting bundle should be written. If omitted, a sourcemap will not be generated.",
-        type: "string",
-      })
-      .option("targetBinaryVersion", {
-        alias: "t",
-        default: null,
-        demand: false,
-        description:
-          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS) or "build.gradle" (Android) files.',
-        type: "string",
-      })
-      .option("outputDir", {
-        alias: "o",
-        default: null,
-        demand: false,
-        description:
-          "Path to where the bundle and sourcemap should be written. If omitted, a bundle and sourcemap will not be written.",
-        type: "string",
-      })
-      .option("useHermes", {
-        alias: "h",
-        default: false,
-        demand: false,
-        description: "Enable hermes and bypass automatic checks",
-        type: "boolean",
-      })
-      .option("podFile", {
-        alias: "pod",
-        default: null,
-        demand: false,
-        description: "Path to the cocopods config file (iOS only).",
-        type: "string",
-      })
-      .option("extraHermesFlags", {
-        alias: "hf",
-        default: [],
-        demand: false,
-        description: "Flags that get passed to Hermes, JavaScript to bytecode compiler. Can be specified multiple times.",
-        type: "array",
-      })
-      .option("privateKeyPath", {
-        alias: "k",
-        default: null,
-        demand: false,
-        description: "Path to private key used for code signing.",
-        type: "string",
-      })
-      .option("xcodeProjectFile", {
-        alias: "xp",
-        default: null,
-        demand: false,
-        description: "Path to the Xcode project or project.pbxproj file",
-        type: "string",
-      })
-      .option("xcodeTargetName", {
-        alias: "xt",
-        default: undefined,
-        demand: false,
-        description:
-          "Name of target (PBXNativeTarget) which specifies the binary version you want to target this release at (iOS only)",
-        type: "string",
-      })
-      .option("buildConfigurationName", {
-        alias: "c",
-        default: undefined,
-        demand: false,
-        description:
-          "Name of build configuration which specifies the binary version you want to target this release at. For example, 'Debug' or 'Release' (iOS only)",
-        type: "string",
-      })
-      .option("extraBundlerOption", {
-        alias: "eo",
-        default: [],
-        demand: false,
-        description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
-        type: "array",
-      })
-      .option("force", {
-        default: false,
-        demand: false,
-        description: "Release even when generated assets exceed the 500 KiB per-file limit",
-        type: "boolean",
-      })
-      .option("buildNumber", {
-        alias: "bn",
-        default: null,
-        demand: false,
-        description:
-          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
-        type: "string",
-      })
-      .check((argv: any): any => {
-        return checkValidReleaseOptions(argv);
-      });
+      );
+
+    addReactReleaseOptions(yargs);
 
     addCommonConfiguration(yargs);
   })
@@ -895,196 +900,9 @@ yargs
       .example(
         "release-expo MyApp android -d Production",
         'Releases the Expo-managed Android project in the current working directory to the "MyApp" app\'s "Production" deployment'
-      )
-      .option("bundleName", {
-        alias: "b",
-        default: null,
-        demand: false,
-        description:
-          'Name of the generated JS bundle file. If unspecified, the standard bundle name will be used, depending on the specified platform: "main.jsbundle" (iOS) or "index.android.bundle" (Android)',
-        type: "string",
-      })
-      .option("deploymentName", {
-        alias: "d",
-        default: "Staging",
-        demand: false,
-        description: "Deployment to release the update to",
-        type: "string",
-      })
-      .option("description", {
-        alias: "des",
-        default: null,
-        demand: false,
-        description: "Description of the changes made to the app with this release",
-        type: "string",
-      })
-      .option("development", {
-        alias: "dev",
-        default: false,
-        demand: false,
-        description: "Specifies whether to generate a dev or release build",
-        type: "boolean",
-      })
-      .option("disabled", {
-        alias: "x",
-        default: false,
-        demand: false,
-        description: "Specifies whether this release should be immediately downloadable",
-        type: "boolean",
-      })
-      .option("entryFile", {
-        alias: "e",
-        default: null,
-        demand: false,
-        description:
-          'Path to the app\'s entry Javascript file. If omitted, "index.<platform>.js" and then "index.js" will be used (if they exist)',
-        type: "string",
-      })
-      .option("gradleFile", {
-        alias: "g",
-        default: null,
-        demand: false,
-        description: "Path to the gradle file which specifies the binary version you want to target this release at (android only).",
-      })
-      .option("initial", {
-        alias: "i",
-        default: false,
-        demand: false,
-        description: "Specifies whether release is initial (base) for given targetBinaryVersion.",
-        type: "boolean",
-      })
-      .option("mandatory", {
-        alias: "m",
-        default: false,
-        demand: false,
-        description: "Specifies whether this release should be considered mandatory",
-        type: "boolean",
-      })
-      .option("noDuplicateReleaseError", {
-        default: false,
-        demand: false,
-        description:
-          "When this flag is set, releasing a package that is identical to the latest release will produce a warning instead of an error",
-        type: "boolean",
-      })
-      .option("plistFile", {
-        alias: "p",
-        default: null,
-        demand: false,
-        description: "Path to the plist file which specifies the binary version you want to target this release at (iOS only).",
-      })
-      .option("plistFilePrefix", {
-        alias: "pre",
-        default: null,
-        demand: false,
-        description: "Prefix to append to the file name when attempting to find your app's Info.plist file (iOS only).",
-      })
-      .option("rollout", {
-        alias: "r",
-        default: "100%",
-        demand: false,
-        description: "Percentage of users this release should be immediately available to",
-        type: "string",
-      })
-      .option("sourcemapOutput", {
-        alias: "s",
-        default: null,
-        demand: false,
-        description:
-          "Path to where the sourcemap for the resulting bundle should be written. If omitted, a sourcemap will not be generated.",
-        type: "string",
-      })
-      .option("targetBinaryVersion", {
-        alias: "t",
-        default: null,
-        demand: false,
-        description:
-          'Semver expression that specifies the binary app version(s) this release is targeting (e.g. 1.1.0, ~1.2.3). If omitted, the release will target the exact version specified in the "Info.plist" (iOS) or "build.gradle" (Android) files.',
-        type: "string",
-      })
-      .option("outputDir", {
-        alias: "o",
-        default: null,
-        demand: false,
-        description:
-          "Path to where the bundle and sourcemap should be written. If omitted, a bundle and sourcemap will not be written.",
-        type: "string",
-      })
-      .option("useHermes", {
-        alias: "h",
-        default: false,
-        demand: false,
-        description: "Enable hermes and bypass automatic checks",
-        type: "boolean",
-      })
-      .option("podFile", {
-        alias: "pod",
-        default: null,
-        demand: false,
-        description: "Path to the cocopods config file (iOS only).",
-        type: "string",
-      })
-      .option("extraHermesFlags", {
-        alias: "hf",
-        default: [],
-        demand: false,
-        description: "Flags that get passed to Hermes, JavaScript to bytecode compiler. Can be specified multiple times.",
-        type: "array",
-      })
-      .option("privateKeyPath", {
-        alias: "k",
-        default: null,
-        demand: false,
-        description: "Path to private key used for code signing.",
-        type: "string",
-      })
-      .option("xcodeProjectFile", {
-        alias: "xp",
-        default: null,
-        demand: false,
-        description: "Path to the Xcode project or project.pbxproj file",
-        type: "string",
-      })
-      .option("xcodeTargetName", {
-        alias: "xt",
-        default: undefined,
-        demand: false,
-        description:
-          "Name of target (PBXNativeTarget) which specifies the binary version you want to target this release at (iOS only)",
-        type: "string",
-      })
-      .option("buildConfigurationName", {
-        alias: "c",
-        default: undefined,
-        demand: false,
-        description:
-          "Name of build configuration which specifies the binary version you want to target this release at. For example, 'Debug' or 'Release' (iOS only)",
-        type: "string",
-      })
-      .option("extraBundlerOption", {
-        alias: "eo",
-        default: [],
-        demand: false,
-        description: "Option that gets passed to react-native bundler. Can be specified multiple times.",
-        type: "array",
-      })
-      .option("force", {
-        default: false,
-        demand: false,
-        description: "Release even when generated assets exceed the 500 KiB per-file limit",
-        type: "boolean",
-      })
-      .option("buildNumber", {
-        alias: "bn",
-        default: null,
-        demand: false,
-        description:
-          "Target clients on a specific native build (CFBundleVersion on iOS, versionCode on Android). Requires an exact appVersion (e.g. 1.2.3, not a range) and an existing native release with that build number. If omitted, targets all clients on the specified appVersion.",
-        type: "string",
-      })
-      .check((argv: any) => {
-        return checkValidReleaseOptions(argv);
-      });
+      );
+
+    addReactReleaseOptions(yargs);
 
     addCommonConfiguration(yargs);
   })
@@ -1499,8 +1317,9 @@ export function createCommand(): cli.ICommand {
         break;
 
       case "release-react":
+      case "release-expo":
         if (arg1 && arg2) {
-          cmd = { type: cli.CommandType.releaseReact };
+          cmd = { type: arg0 === "release-expo" ? cli.CommandType.releaseExpo : cli.CommandType.releaseReact };
 
           const releaseReactCommand = cmd as cli.IReleaseReactCommand;
 
@@ -1533,44 +1352,6 @@ export function createCommand(): cli.ICommand {
           releaseReactCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
           releaseReactCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
           releaseReactCommand.force = argv["force"] as any;
-        }
-        break;
-
-      case "release-expo":
-        if (arg1 && arg2) {
-          cmd = { type: cli.CommandType.releaseExpo };
-
-          const releaseExpoCommand = cmd as cli.IReleaseReactCommand;
-
-          releaseExpoCommand.appName = arg1;
-          releaseExpoCommand.platform = arg2;
-
-          releaseExpoCommand.appStoreVersion = argv["targetBinaryVersion"] as any;
-          releaseExpoCommand.buildNumber = argv["buildNumber"] as any;
-          releaseExpoCommand.bundleName = argv["bundleName"] as any;
-          releaseExpoCommand.deploymentName = argv["deploymentName"] as any;
-          releaseExpoCommand.disabled = argv["disabled"] as any;
-          releaseExpoCommand.description = argv["description"] ? backslash(argv["description"]) : "";
-          releaseExpoCommand.development = argv["development"] as any;
-          releaseExpoCommand.entryFile = argv["entryFile"] as any;
-          releaseExpoCommand.gradleFile = argv["gradleFile"] as any;
-          releaseExpoCommand.mandatory = argv["mandatory"] as any;
-          releaseExpoCommand.initial = argv["initial"] as any;
-          releaseExpoCommand.noDuplicateReleaseError = argv["noDuplicateReleaseError"] as any;
-          releaseExpoCommand.plistFile = argv["plistFile"] as any;
-          releaseExpoCommand.plistFilePrefix = argv["plistFilePrefix"] as any;
-          releaseExpoCommand.rollout = getRolloutValue(argv["rollout"] as any);
-          releaseExpoCommand.sourcemapOutput = argv["sourcemapOutput"] as any;
-          releaseExpoCommand.outputDir = argv["outputDir"] as any;
-          releaseExpoCommand.useHermes = argv["useHermes"] as any;
-          releaseExpoCommand.extraHermesFlags = argv["extraHermesFlags"] as any;
-          releaseExpoCommand.podFile = argv["podFile"] as any;
-          releaseExpoCommand.privateKeyPath = argv["privateKeyPath"] as any;
-          releaseExpoCommand.xcodeProjectFile = argv["xcodeProjectFile"] as any;
-          releaseExpoCommand.xcodeTargetName = argv["xcodeTargetName"] as any;
-          releaseExpoCommand.buildConfigurationName = argv["buildConfigurationName"] as any;
-          releaseExpoCommand.extraBundlerOptions = argv["extraBundlerOption"] as any;
-          releaseExpoCommand.force = argv["force"] as any;
         }
         break;
 

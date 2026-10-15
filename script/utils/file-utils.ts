@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as yauzl from "yauzl";
+import * as yazl from "yazl";
 import { pipeline } from "node:stream/promises";
 
 import superagent = require("superagent");
@@ -93,4 +94,27 @@ export async function extractArchive(zipPath: string, extractTo: string) {
     await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
     await pipeline(await zipFile.openReadStreamPromise(entry), fs.createWriteStream(outPath));
   }
+}
+
+export type ZipEntry = [filePath: string, zipEntryPath: string];
+
+/** Writes a zip with each [file on disk, path inside the zip] entry, in order */
+export function createZip(zipPath: string, entries: ZipEntry[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const zipFile = new yazl.ZipFile();
+    const writeStream = fs.createWriteStream(zipPath);
+
+    // yazl reports unreadable input files on the ZipFile itself
+    zipFile.on("error", reject);
+    zipFile.outputStream
+      .pipe(writeStream)
+      .on("error", reject)
+      .on("close", () => resolve());
+
+    for (const [filePath, zipEntryPath] of entries) {
+      zipFile.addFile(filePath, zipEntryPath);
+    }
+
+    zipFile.end();
+  });
 }

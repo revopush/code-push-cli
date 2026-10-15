@@ -4,8 +4,8 @@ import * as crypto from "crypto";
 import * as chalk from "chalk";
 import { log } from "./ui/log";
 import * as os from "os";
-import * as yazl from "yazl";
 import * as yauzl from "yauzl";
+import { createZip, ZipEntry } from "./utils/file-utils";
 import { readFile } from "node:fs/promises";
 import { buffer as readStreamToBuffer } from "node:stream/consumers";
 import * as protobuf from "protobufjs";
@@ -140,30 +140,10 @@ async function takeHashesFromMetadata(metadataPath: string): Promise<BinaryHashe
 }
 
 function createZipArchive(sourceFolder: string, zipPath: string, filesToInclude: string[]): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const zipFile = new yazl.ZipFile();
-    const writeStream = fs.createWriteStream(zipPath);
-
-    // yazl reports unreadable input files on the ZipFile itself
-    zipFile.on("error", reject);
-    zipFile.outputStream
-      .pipe(writeStream)
-      .on("error", (error: Error) => {
-        reject(error);
-      })
-      .on("close", () => {
-        resolve();
-      });
-
-    for (const file of filesToInclude) {
-      const filePath = path.join(sourceFolder, file);
-      if (fs.existsSync(filePath)) {
-        zipFile.addFile(filePath, file);
-      }
-    }
-
-    zipFile.end();
-  });
+  const entries: ZipEntry[] = filesToInclude
+    .map((file): ZipEntry => [path.join(sourceFolder, file), file])
+    .filter(([filePath]) => fs.existsSync(filePath));
+  return createZip(zipPath, entries);
 }
 
 function parsePlistBuffer(buf: Buffer): any {
