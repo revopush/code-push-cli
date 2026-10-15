@@ -63,8 +63,6 @@ const plist = require("plist");
 const progress = require("progress");
 const prompt = require("prompt");
 
-const rimraf = require("rimraf");
-
 const Table = require("cli-table");
 
 const xcode = require("xcode");
@@ -293,15 +291,15 @@ function deleteConnectionInfoCache(printMessage: boolean = true): void {
 }
 
 function deleteFolder(folderPath: string): Promise<void> {
-  return Promise<void>((resolve, reject) => {
-    rimraf(folderPath, (err: any) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(<void>null);
-      }
-    });
-  });
+  return Q(fs.promises.rm(folderPath, { recursive: true, force: true, maxRetries: 3 }));
+}
+
+async function deleteReactTempFolders(): globalThis.Promise<void> {
+  const tempFolder: string = os.tmpdir();
+  // An unreadable temp folder means there is nothing to delete
+  const names: string[] = await fs.promises.readdir(tempFolder).catch((): string[] => []);
+  const reactFolders: string[] = names.filter((name) => name.startsWith("react-"));
+  await Q.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
 }
 
 function deploymentAdd(command: cli.IDeploymentAddCommand): Promise<void> {
@@ -1397,7 +1395,7 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
 
       return createEmptyTempReleaseFolder(outputFolder);
     })
-    .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
+    .then(() => deleteReactTempFolders())
     .then(async () => {
       const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
       await runExpoExportEmbedCommand(bundleOptions);
@@ -1487,7 +1485,7 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
       })
       // This is needed to clear the react native bundler cache:
       // https://github.com/facebook/react-native/issues/4289
-      .then(() => deleteFolder(`${os.tmpdir()}/react-*`))
+      .then(() => deleteReactTempFolders())
       .then(async () => {
         const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
         await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);

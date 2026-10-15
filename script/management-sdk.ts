@@ -6,9 +6,7 @@ import * as os from "os";
 import * as path from "path";
 import Q = require("q");
 import superagent = require("superagent");
-import * as recursiveFs from "recursive-fs";
 import * as yazl from "yazl";
-import slash = require("slash");
 
 import Promise = Q.Promise;
 
@@ -29,6 +27,7 @@ import {
   BaseRelease,
 } from "./types";
 import { ReactNativePackageInfo } from "./types/rest-definitions";
+import { listFiles, normalizePath } from "./utils/file-utils";
 
 const packageJson = require("../../package.json");
 
@@ -465,15 +464,9 @@ class AccountManager {
   private packageFileFromPath(filePath: string) {
     let getPackageFilePromise: Promise<PackageFile>;
     if (fs.lstatSync(filePath).isDirectory()) {
-      getPackageFilePromise = Promise<PackageFile>((resolve: (file: PackageFile) => void, reject: (reason: Error) => void): void => {
-        const directoryPath: string = filePath;
-
-        recursiveFs.readdirr(directoryPath, (error?: any, directories?: string[], files?: string[]) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
+      const directoryPath: string = filePath;
+      getPackageFilePromise = Q(listFiles(directoryPath)).then((files: string[]) =>
+        Promise<PackageFile>((resolve: (file: PackageFile) => void, reject: (reason: Error) => void): void => {
           const baseDirectoryPath = path.dirname(directoryPath);
           const fileName: string = this.generateRandomFilename(15) + ".zip";
           const zipFile = new yazl.ZipFile();
@@ -493,14 +486,14 @@ class AccountManager {
           for (let i = 0; i < files.length; ++i) {
             const file: string = files[i];
             // yazl does not like backslash (\) in the metadata path.
-            const relativePath: string = slash(path.relative(baseDirectoryPath, file));
+            const relativePath: string = normalizePath(path.relative(baseDirectoryPath, file));
 
             zipFile.addFile(file, relativePath);
           }
 
           zipFile.end();
-        });
-      });
+        })
+      );
     } else {
       getPackageFilePromise = Q({ isTemporary: false, path: filePath });
     }
