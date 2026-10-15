@@ -156,7 +156,7 @@ describe("CLI", () => {
       await execute(command);
 
       assertLoggedOnce(
-        'Successfully changed the expiration date of the "Test name" access key to Wednesday, August 17, 2016 12:07 PM.'
+        'Successfully changed the expiration date of the "Test name" access key to Wednesday, August 17, 2016 at 12:07 PM.'
       );
     });
 
@@ -171,7 +171,7 @@ describe("CLI", () => {
       await execute(command);
 
       assertLoggedOnce(
-        'Successfully renamed the access key "Test name" to "Updated name" and changed its expiration date to Wednesday, August 17, 2016 12:07 PM.'
+        'Successfully renamed the access key "Test name" to "Updated name" and changed its expiration date to Wednesday, August 17, 2016 at 12:07 PM.'
       );
     });
 

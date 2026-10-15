@@ -3,7 +3,6 @@
 
 import * as childProcess from "child_process";
 import * as cli from "../../script/types/cli";
-import * as moment from "moment";
 import * as path from "path";
 
 const simctl = require("simctl");
@@ -111,7 +110,7 @@ function processLogData(logData: Buffer) {
       // log message prefix that is added to each entry.
       const message = line.substring(line.indexOf(logMessagePrefix) + logMessagePrefix.length);
 
-      const timeStamp = moment().format("hh:mm:ss");
+      const timeStamp = new Date().toLocaleTimeString("en-US", { hourCycle: "h23" });
       return `[${timeStamp}] ${message}`;
     })
     .forEach((line: string) => console.log(line));
