@@ -33,7 +33,8 @@ const FALLBACK_HINT = "Pass the version explicitly with --targetBinaryVersion to
 // "revopush"-prefixed to avoid collisions with project tasks; written in Groovy,
 // which Gradle accepts as an init script for projects of either DSL.
 const PRINT_VERSION_TASK = "_revopushPrintVersion";
-const printVersionInitScript = (moduleName: string) => `
+const printVersionInitScript = (moduleName: string) =>
+  `
 allprojects {
   afterEvaluate { proj ->
     if (proj.name == '${moduleName}') {
@@ -68,10 +69,12 @@ export async function getAndroidVersionInfo(gradleFile?: string | null): Promise
   const appVersion = resolveAppVersion(versionName, buildFile);
   const buildNumber = resolveBuildNumber(versionCode, buildFile);
   if (!buildNumber) {
-    console.log(chalk.yellow(
-      `Warning: Unable to read "android.defaultConfig.versionCode" from "${buildFile}". ` +
-      `This is expected if it is set dynamically (e.g. on CI). Pass --buildNumber explicitly to include it in the release.`
-    ));
+    console.log(
+      chalk.yellow(
+        `Warning: Unable to read "android.defaultConfig.versionCode" from "${buildFile}". ` +
+          `This is expected if it is set dynamically (e.g. on CI). Pass --buildNumber explicitly to include it in the release.`
+      )
+    );
   }
   return { appVersion, buildNumber };
 }
@@ -135,7 +138,10 @@ async function parseGroovyDslBuildFile(buildFile: string): Promise<any> {
 function getLegacyReactProperty(parsed: any, key: string): string | undefined {
   const entries: string[] = parsed["project.ext.react"] || [];
   const entry = entries.map((prop) => prop.replace(/\/\/.*$/gm, "").trim()).find((prop) => prop.startsWith(`${key}:`));
-  return entry?.slice(key.length + 1).trim().replace(/^["']|["']$/g, "");
+  return entry
+    ?.slice(key.length + 1)
+    .trim()
+    .replace(/^["']|["']$/g, "");
 }
 
 async function parseGroovyDslVersion(buildFile: string): Promise<GradleVersionFields> {
@@ -146,7 +152,7 @@ async function parseGroovyDslVersion(buildFile: string): Promise<GradleVersionFi
   if (!defaultConfig && /^\s*val\s+/m.test(fs.readFileSync(buildFile, "utf8"))) {
     throw new Error(
       `"${buildFile}" appears to contain Kotlin DSL syntax. Gradle determines the script language by file extension — ` +
-      `rename the file to "${path.basename(buildFile)}.kts" to make it a valid Kotlin DSL build script.`
+        `rename the file to "${path.basename(buildFile)}.kts" to make it a valid Kotlin DSL build script.`
     );
   }
   return {
@@ -193,7 +199,7 @@ function resolveAppVersion(versionName: string | null, buildFile: string): strin
   if (!appVersion || !isValidVersion(appVersion)) {
     throw new Error(
       `Unable to resolve a valid semver app version (e.g. 1.3.2) from "android.defaultConfig.versionName" in "${buildFile}" ` +
-      `(found: "${versionName}"). ${FALLBACK_HINT}`
+        `(found: "${versionName}"). ${FALLBACK_HINT}`
     );
   }
   return appVersion;

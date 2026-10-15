@@ -9,6 +9,7 @@
     "pretest": "node -e \"require('fs').rmSync('bin', { recursive: true, force: true })\"",
     "test": "tsc && node -e \"require('fs').cpSync('test/resources', 'bin/test/resources', { recursive: true })\" && mocha",
     "prettier": "prettier --write \"./**/*.ts\"",
+    "format:check": "prettier --check \"script/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"script/**/*.ts\" \"test/**/*.ts\"",
     "lint:fix": "eslint \"script/**/*.ts\" \"test/**/*.ts\" --fix"
   },
@@ -68,7 +69,7 @@
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.45.0",
     "mocha": "^12.0.1",
-    "prettier": "^2.8.8",
+    "prettier": "^3.9.10",
     "sinon": "15.1.2",
     "superagent-mock": "^4.0.0",
     "typescript": "^5.1.3"

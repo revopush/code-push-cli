@@ -9,7 +9,7 @@ import * as yauzl from "yauzl";
 import { readFile } from "node:fs/promises";
 import { buffer as readStreamToBuffer } from "node:stream/consumers";
 import * as protobuf from "protobufjs";
-import * as plist from "plist"
+import * as plist from "plist";
 import * as bplist from "bplist-parser";
 
 export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
@@ -219,13 +219,17 @@ const AAB_MANIFEST_ENTRY_NAME = "base/manifest/AndroidManifest.xml";
 // An AAB's <manifest> is protobuf-encoded as an aapt.pb.XmlNode. We only read a
 // few attributes, so we declare just that slice (field numbers from AOSP
 // aapt2/Resources.proto); the decoder skips every field we omit.
-const XmlNode = protobuf.parse(`
+const XmlNode = protobuf
+  .parse(
+    `
     syntax = "proto3";
     package aapt.pb;
     message XmlAttribute { string name = 2; string value = 3; }
     message XmlElement { string name = 3; repeated XmlAttribute attribute = 4; }
     message XmlNode { XmlElement element = 1; }
-`).root.lookupType("aapt.pb.XmlNode");
+`
+  )
+  .root.lookupType("aapt.pb.XmlNode");
 
 async function readManifestAttributes(file: string | Buffer): Promise<ManifestAttribute[]> {
   const zipFile = typeof file === "string" ? await yauzl.openPromise(file) : await yauzl.fromBufferPromise(file);
