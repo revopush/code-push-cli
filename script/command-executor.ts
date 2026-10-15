@@ -1372,18 +1372,15 @@ export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> =>
       // For release-expo, buildNumber is NOT auto-detected — it must be passed explicitly
       // via --buildNumber. Auto-detection only applies to release-native where the binary
       // build number is the natural targeting key.
-      const versionInfoPromise: Promise<ProjectVersionInfo> = command.appStoreVersion
-        ? Promise.resolve({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
-        : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
-            appVersion: detected.appVersion,
-            buildNumber: command.buildNumber,
-          }));
+      const versionInfo: ProjectVersionInfo = command.appStoreVersion
+        ? { appVersion: command.appStoreVersion, buildNumber: command.buildNumber }
+        : { appVersion: (await getReactNativeProjectVersionInfo(command, projectName)).appVersion, buildNumber: command.buildNumber };
 
       if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
         await createEmptyTempReleaseFolder(sourcemapOutputFolder);
       }
 
-      return versionInfoPromise;
+      return versionInfo;
     })
     .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
       throwForInvalidSemverRange(appVersion);
@@ -1459,19 +1456,19 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
         // For release-react, buildNumber is NOT auto-detected — it must be passed explicitly
         // via --buildNumber. Auto-detection only applies to release-native where the binary
         // build number is the natural targeting key.
-        const versionInfoPromise: Promise<ProjectVersionInfo> = command.appStoreVersion
-          ? Promise.resolve({ appVersion: command.appStoreVersion, buildNumber: command.buildNumber })
-          : getReactNativeProjectVersionInfo(command, projectName).then((detected) => ({
-              appVersion: detected.appVersion,
+        const versionInfo: ProjectVersionInfo = command.appStoreVersion
+          ? { appVersion: command.appStoreVersion, buildNumber: command.buildNumber }
+          : {
+              appVersion: (await getReactNativeProjectVersionInfo(command, projectName)).appVersion,
               buildNumber: command.buildNumber,
-            }));
+            };
 
         if (!sourcemapOutputFolder.endsWith(".map") && !command.sourcemapOutput) {
           // create tmp dir only if no dir was given by user. User must crete a directory if --sourcemapOutput is passes
           await createEmptyTempReleaseFolder(sourcemapOutputFolder);
         }
 
-        return versionInfoPromise;
+        return versionInfo;
       })
       .then(({ appVersion, buildNumber }: ProjectVersionInfo) => {
         throwForInvalidSemverRange(appVersion);
