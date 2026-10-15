@@ -843,17 +843,29 @@ function printReleaseSizeWarnings(analysis: ReleaseSizeAnalysis | null, force: b
   }
 }
 
-type ReactBundler = "react-native" | "expo";
+// The only steps where release-react and release-expo differ
+interface ReactBundler {
+  resolveEntryFile: boolean;
+  bundle(options: BundleOptions, entryFile: string, isHermes: boolean): Promise<void>;
+}
 
-export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => releaseReactBundle(command, "react-native");
+const reactNativeBundler: ReactBundler = {
+  resolveEntryFile: true,
+  bundle: (options, entryFile, isHermes) => runReactNativeBundleCommand(options, entryFile, isHermes),
+};
 
-export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> => releaseReactBundle(command, "expo");
+// Expo finds the JS entry file itself
+const expoBundler: ReactBundler = {
+  resolveEntryFile: false,
+  bundle: (options) => runExpoExportEmbedCommand(options),
+};
+
+export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> => releaseReactBundle(command, reactNativeBundler);
+
+export const releaseExpo = (command: cli.IReleaseReactCommand): Promise<void> => releaseReactBundle(command, expoBundler);
 
 async function releaseReactBundle(command: cli.IReleaseReactCommand, bundler: ReactBundler): Promise<void> {
-  const { platform, bundleName, entryFile, projectName } = validateReactReleaseCommand(command, {
-    // Only the react-native bundler takes the JS entry file; Expo resolves it itself
-    resolveEntryFile: bundler === "react-native",
-  });
+  const { platform, bundleName, entryFile, projectName } = validateReactReleaseCommand(command, bundler);
 
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
@@ -887,11 +899,7 @@ async function releaseReactBundle(command: cli.IReleaseReactCommand, bundler: Re
   await deleteReactTempFolders();
 
   const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
-  if (bundler === "expo") {
-    await runExpoExportEmbedCommand(bundleOptions);
-  } else {
-    await runReactNativeBundleCommand(bundleOptions, entryFile, isHermes);
-  }
+  await bundler.bundle(bundleOptions, entryFile, isHermes);
 
   if (isHermes) {
     await compileHermesBundle(command, outputFolder, bundleName, sourceMaps, baseReleaseTmpFolder);
