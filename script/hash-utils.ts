@@ -9,14 +9,12 @@
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import * as q from "q";
 import * as stream from "stream";
 
 import * as yauzl from "yauzl";
 
 import { listFiles } from "./utils/file-utils";
 
-import Promise = q.Promise;
 const HASH_ALGORITHM = "sha256";
 
 export function generatePackageHashFromDirectory(directoryPath: string, basePath: string): Promise<string> {
@@ -30,90 +28,71 @@ export function generatePackageHashFromDirectory(directoryPath: string, basePath
 }
 
 export function generatePackageManifestFromZip(filePath: string): Promise<PackageManifest> {
-  const deferred: q.Deferred<PackageManifest> = q.defer<PackageManifest>();
-  const reject = (error: Error) => {
-    if (deferred.promise.isPending()) {
-      deferred.reject(error);
-    }
-  };
-
-  const resolve = (manifest: PackageManifest) => {
-    if (deferred.promise.isPending()) {
-      deferred.resolve(manifest);
-    }
-  };
-
   let zipFile: any;
 
-  yauzl.open(filePath, { lazyEntries: true }, (error?: any, openedZipFile?: any): void => {
-    if (error) {
-      // This is the first time we try to read the package as a .zip file;
-      // however, it may not be a .zip file.  Handle this gracefully.
-      resolve(null);
-      return;
-    }
+  return new Promise<PackageManifest>((resolve, reject) => {
+    yauzl.open(filePath, { lazyEntries: true }, (error?: any, openedZipFile?: any): void => {
+      if (error) {
+        // This is the first time we try to read the package as a .zip file;
+        // however, it may not be a .zip file.  Handle this gracefully.
+        resolve(null);
+        return;
+      }
 
-    zipFile = openedZipFile;
-    const fileHashesMap = new Map<string, string>();
-    const hashFilePromises: q.Promise<void>[] = [];
+      zipFile = openedZipFile;
+      const fileHashesMap = new Map<string, string>();
+      const hashFilePromises: Promise<void>[] = [];
 
-    // Read each entry in the archive sequentially and generate a hash for it.
-    zipFile.readEntry();
-    zipFile
-      .on("error", (error: any): void => {
-        reject(error);
-      })
-      .on("entry", (entry: any): void => {
-        const fileName: string = PackageManifest.normalizePath(entry.fileName);
-        if (PackageManifest.isIgnored(fileName)) {
-          zipFile.readEntry();
-          return;
-        }
-
-        zipFile.openReadStream(entry, (error?: any, readStream?: stream.Readable): void => {
-          if (error) {
-            reject(error);
+      // Read each entry in the archive sequentially and generate a hash for it.
+      zipFile.readEntry();
+      zipFile
+        .on("error", (error: any): void => {
+          reject(error);
+        })
+        .on("entry", (entry: any): void => {
+          const fileName: string = PackageManifest.normalizePath(entry.fileName);
+          if (PackageManifest.isIgnored(fileName)) {
+            zipFile.readEntry();
             return;
           }
 
-          hashFilePromises.push(
-            hashStream(readStream).then((hash: string) => {
-              fileHashesMap.set(fileName, hash);
-              zipFile.readEntry();
-            }, reject)
-          );
-        });
-      })
-      .on("end", (): void => {
-        q.all(hashFilePromises).then(() => resolve(new PackageManifest(fileHashesMap)), reject);
-      });
-  });
+          zipFile.openReadStream(entry, (error?: any, readStream?: stream.Readable): void => {
+            if (error) {
+              reject(error);
+              return;
+            }
 
-  return deferred.promise.finally(() => zipFile && zipFile.close());
+            hashFilePromises.push(
+              hashStream(readStream).then((hash: string) => {
+                fileHashesMap.set(fileName, hash);
+                zipFile.readEntry();
+              }, reject)
+            );
+          });
+        })
+        .on("end", (): void => {
+          Promise.all(hashFilePromises).then(() => resolve(new PackageManifest(fileHashesMap)), reject);
+        });
+    });
+  }).finally(() => zipFile && zipFile.close());
 }
 
-export function generatePackageManifestFromDirectory(directoryPath: string, basePath: string): Promise<PackageManifest> {
+export async function generatePackageManifestFromDirectory(directoryPath: string, basePath: string): Promise<PackageManifest> {
+  const files: string[] = await listFiles(directoryPath);
+  if (files.length === 0) {
+    throw new Error("Can't sign the release because no files were found.");
+  }
+
+  // Hash the files sequentially, because streaming them in parallel is not necessarily faster
   const fileHashesMap = new Map<string, string>();
-
-  return q(listFiles(directoryPath)).then((files: string[]): Promise<PackageManifest> => {
-    if (files.length === 0) {
-      return q.reject<PackageManifest>("Error: Can't sign the release because no files were found.");
+  for (const filePath of files) {
+    const relativePath: string = PackageManifest.normalizePath(path.relative(basePath, filePath));
+    if (!PackageManifest.isIgnored(relativePath)) {
+      fileHashesMap.set(relativePath, await hashFile(filePath));
     }
+  }
 
-    // Hash the files sequentially, because streaming them in parallel is not necessarily faster
-    const generateManifestPromise: Promise<void> = files.reduce((soFar: Promise<void>, filePath: string) => {
-      return soFar.then(() => {
-        const relativePath: string = PackageManifest.normalizePath(path.relative(basePath, filePath));
-        if (!PackageManifest.isIgnored(relativePath)) {
-          return hashFile(filePath).then((hash: string) => {
-            fileHashesMap.set(relativePath, hash);
-          });
-        }
-      });
-    }, q(<void>null));
-
-    return generateManifestPromise.then(() => new PackageManifest(fileHashesMap));
-  });
+  return new PackageManifest(fileHashesMap);
 }
 
 export function hashFile(filePath: string): Promise<string> {
@@ -123,29 +102,31 @@ export function hashFile(filePath: string): Promise<string> {
 
 export function hashStream(readStream: stream.Readable): Promise<string> {
   const hashStream = <stream.Transform>(<any>crypto.createHash(HASH_ALGORITHM));
-  const deferred: q.Deferred<string> = q.defer<string>();
+  let isSettled = false;
 
-  readStream
-    .on("error", (error: any): void => {
-      if (deferred.promise.isPending()) {
-        hashStream.end();
-        deferred.reject(error);
-      }
-    })
-    .on("end", (): void => {
-      if (deferred.promise.isPending()) {
-        hashStream.end();
+  return new Promise<string>((resolve, reject) => {
+    readStream
+      .on("error", (error: any): void => {
+        if (!isSettled) {
+          isSettled = true;
+          hashStream.end();
+          reject(error);
+        }
+      })
+      .on("end", (): void => {
+        if (!isSettled) {
+          isSettled = true;
+          hashStream.end();
 
-        const buffer = <Buffer>hashStream.read();
-        const hash: string = buffer.toString("hex");
+          const buffer = <Buffer>hashStream.read();
+          const hash: string = buffer.toString("hex");
 
-        deferred.resolve(hash);
-      }
-    });
+          resolve(hash);
+        }
+      });
 
-  readStream.pipe(hashStream);
-
-  return deferred.promise;
+    readStream.pipe(hashStream);
+  });
 }
 
 export class PackageManifest {
@@ -172,7 +153,7 @@ export class PackageManifest {
     // can also compute this hash easily given the update contents.
     entries = entries.sort();
 
-    return q(crypto.createHash(HASH_ALGORITHM).update(JSON.stringify(entries)).digest("hex"));
+    return Promise.resolve(crypto.createHash(HASH_ALGORITHM).update(JSON.stringify(entries)).digest("hex"));
   }
 
   public serialize(): string {

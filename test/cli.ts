@@ -26,7 +26,7 @@ function fakeBundler(_command: string, args: string[]) {
   return fakeBundlerProcess(args);
 }
 
-/** Runs the command, adapting the CLI's Q promise to a native one for `assert.rejects` */
+/** Runs the command; being async turns synchronous throws into rejections for `assert.rejects` */
 async function execute(command: cli.ICommand): Promise<void> {
   await cmdexec.execute(command);
 }

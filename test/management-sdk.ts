@@ -47,8 +47,7 @@ function mockServerResponse(status: number, body = "", header: Record<string, st
   return requestBodies;
 }
 
-// The SDK returns Q promises, so tests pass `async () => ...` to assert.rejects to get a native promise
-type SdkCall = (manager: AccountManager) => PromiseLike<unknown>;
+type SdkCall = (manager: AccountManager) => Promise<unknown>;
 
 const callsThatPropagateServerErrors: Array<[name: string, call: SdkCall]> = [
   ["addApp", (manager) => manager.addApp("appName")],
