@@ -7,7 +7,10 @@ import AccountManager = require("../management-sdk");
 
 const packageJson = require("../../../package.json");
 
-const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
+export const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".revopush.config");
+
+// The file holds the access key, so only its owner may read it
+const OWNER_ONLY = 0o600;
 
 const CLI_HEADERS: Headers = {
   "X-CodePush-CLI-Version": packageJson.version,
@@ -39,6 +42,7 @@ export function deserializeConnectionInfo(): ILoginConnectionInfo {
     const savedConnection: string = fs.readFileSync(configFilePath, {
       encoding: "utf8",
     });
+    restrictToOwner();
     let connectionInfo: ILegacyLoginConnectionInfo | ILoginConnectionInfo = JSON.parse(savedConnection);
 
     // If the connection info is in the legacy format, convert it to the modern format
@@ -54,6 +58,15 @@ export function deserializeConnectionInfo(): ILoginConnectionInfo {
   }
 }
 
+// Also fixes files saved by older versions, which other users could read
+function restrictToOwner(): void {
+  try {
+    fs.chmodSync(configFilePath, OWNER_ONLY);
+  } catch {
+    // The file doesn't exist yet, or belongs to another user
+  }
+}
+
 export function serializeConnectionInfo(accessKey: string, preserveAccessKeyOnLogout: boolean, customServerUrl?: string): void {
   const connectionInfo: ILoginConnectionInfo = {
     accessKey: accessKey,
@@ -64,7 +77,9 @@ export function serializeConnectionInfo(accessKey: string, preserveAccessKeyOnLo
   }
 
   const json: string = JSON.stringify(connectionInfo);
-  fs.writeFileSync(configFilePath, json, { encoding: "utf8" });
+  // `mode` applies only when the file is created; an existing file is restricted before the key is written to it
+  restrictToOwner();
+  fs.writeFileSync(configFilePath, json, { encoding: "utf8", mode: OWNER_ONLY });
 
   log(
     `\r\nSuccessfully logged-in. Your session file was written to ${chalk.cyan(configFilePath)}. You can run the ${chalk.cyan(
