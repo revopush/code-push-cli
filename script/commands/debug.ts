@@ -17,7 +17,7 @@ class AndroidDebugPlatform implements IDebugPlatform {
   public getLogProcess(): any {
     try {
       which.sync("adb");
-    } catch (e) {
+    } catch {
       throw new Error("ADB command not found. Please ensure it is installed and available on your path.");
     }
 

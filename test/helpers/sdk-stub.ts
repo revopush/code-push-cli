@@ -36,28 +36,28 @@ export class SdkStub {
   }
 
   public getAccountInfo(): Promise<Account> {
-    return Promise.resolve(<Account>{ email: "a@a.com" });
+    return Promise.resolve({ email: "a@a.com" } as Account);
   }
 
   public addAccessKey(name: string, ttl?: number): Promise<AccessKey> {
-    return Promise.resolve(<AccessKey>{
+    return Promise.resolve({
       key: "key123",
       createdTime: Date.now(),
       name,
       expires: NOW + (ttl ?? DEFAULT_ACCESS_KEY_MAX_AGE),
-    });
+    } as AccessKey);
   }
 
   public patchAccessKey(_oldName: string, newName?: string, newTtl?: number): Promise<AccessKey> {
-    return Promise.resolve(<AccessKey>{
+    return Promise.resolve({
       createdTime: Date.now(),
       name: newName,
       expires: NOW + (newTtl ?? DEFAULT_ACCESS_KEY_MAX_AGE),
-    });
+    } as AccessKey);
   }
 
   public getAccessKeys(): Promise<AccessKey[]> {
-    return Promise.resolve([<AccessKey>{ createdTime: 0, name: "Test name", expires: NOW + DEFAULT_ACCESS_KEY_MAX_AGE }]);
+    return Promise.resolve([{ createdTime: 0, name: "Test name", expires: NOW + DEFAULT_ACCESS_KEY_MAX_AGE } as AccessKey]);
   }
 
   public async removeAccessKey(): Promise<void> {}
@@ -69,7 +69,7 @@ export class SdkStub {
   public async removeSession(): Promise<void> {}
 
   public addApp(name: string): Promise<App> {
-    return Promise.resolve(<App>{ name });
+    return Promise.resolve({ name } as App);
   }
 
   public getApps(): Promise<App[]> {
@@ -123,7 +123,7 @@ export class SdkStub {
 
   public getDeploymentHistory(): Promise<Package[]> {
     return Promise.resolve([
-      <Package>{
+      {
         description: null,
         appVersion: "1.0.0",
         isMandatory: false,
@@ -132,8 +132,8 @@ export class SdkStub {
         uploadTime: 1447113596270,
         size: 1,
         label: "v1",
-      },
-      <Package>{
+      } as Package,
+      {
         description: "New update - this update does a whole bunch of things, including testing linewrapping",
         appVersion: "1.0.1",
         isMandatory: false,
@@ -142,16 +142,16 @@ export class SdkStub {
         uploadTime: 1447118476669,
         size: 2,
         label: "v2",
-      },
+      } as Package,
     ]);
   }
 
   public getDeploymentMetrics(): Promise<DeploymentMetrics> {
-    return Promise.resolve(<DeploymentMetrics>{
+    return Promise.resolve({
       "1.0.0": { active: 123 },
       v1: { active: 789, downloaded: 456, failed: 654, installed: 987 },
       v2: { active: 123, downloaded: 321, failed: 789, installed: 456 },
-    });
+    } as DeploymentMetrics);
   }
 
   public release(): Promise<string> {

@@ -1194,7 +1194,7 @@ export function createCommand(): cli.ICommand {
           case "add":
             if (arg2) {
               cmd = { type: cli.CommandType.accessKeyAdd };
-              const accessKeyAddCmd = <cli.IAccessKeyAddCommand>cmd;
+              const accessKeyAddCmd = cmd as cli.IAccessKeyAddCommand;
               accessKeyAddCmd.name = arg2;
               const ttlOption: string = argv["ttl"] as any;
               if (isDefined(ttlOption)) {
@@ -1206,7 +1206,7 @@ export function createCommand(): cli.ICommand {
           case "patch":
             if (arg2) {
               cmd = { type: cli.CommandType.accessKeyPatch };
-              const accessKeyPatchCmd = <cli.IAccessKeyPatchCommand>cmd;
+              const accessKeyPatchCmd = cmd as cli.IAccessKeyPatchCommand;
               accessKeyPatchCmd.oldName = arg2;
 
               const newNameOption: string = argv["name"] as any;
@@ -1225,7 +1225,7 @@ export function createCommand(): cli.ICommand {
           case "ls":
             cmd = { type: cli.CommandType.accessKeyList };
 
-            (<cli.IAccessKeyListCommand>cmd).format = argv["format"] as any;
+            (cmd as cli.IAccessKeyListCommand).format = argv["format"] as any;
             break;
 
           case "remove":
@@ -1233,7 +1233,7 @@ export function createCommand(): cli.ICommand {
             if (arg2) {
               cmd = { type: cli.CommandType.accessKeyRemove };
 
-              (<cli.IAccessKeyRemoveCommand>cmd).accessKey = arg2;
+              (cmd as cli.IAccessKeyRemoveCommand).accessKey = arg2;
             }
             break;
         }
@@ -1245,7 +1245,7 @@ export function createCommand(): cli.ICommand {
             if (arg2) {
               cmd = { type: cli.CommandType.appAdd };
 
-              (<cli.IAppAddCommand>cmd).appName = arg2;
+              (cmd as cli.IAppAddCommand).appName = arg2;
             }
             break;
 
@@ -1253,7 +1253,7 @@ export function createCommand(): cli.ICommand {
           case "ls":
             cmd = { type: cli.CommandType.appList };
 
-            (<cli.IAppListCommand>cmd).format = argv["format"] as any;
+            (cmd as cli.IAppListCommand).format = argv["format"] as any;
             break;
 
           case "remove":
@@ -1261,7 +1261,7 @@ export function createCommand(): cli.ICommand {
             if (arg2) {
               cmd = { type: cli.CommandType.appRemove };
 
-              (<cli.IAppRemoveCommand>cmd).appName = arg2;
+              (cmd as cli.IAppRemoveCommand).appName = arg2;
             }
             break;
 
@@ -1269,7 +1269,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.appRename };
 
-              const appRenameCommand = <cli.IAppRenameCommand>cmd;
+              const appRenameCommand = cmd as cli.IAppRenameCommand;
 
               appRenameCommand.currentAppName = arg2;
               appRenameCommand.newAppName = arg3;
@@ -1280,7 +1280,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.appTransfer };
 
-              const appTransferCommand = <cli.IAppTransferCommand>cmd;
+              const appTransferCommand = cmd as cli.IAppTransferCommand;
 
               appTransferCommand.appName = arg2;
               appTransferCommand.email = arg3;
@@ -1295,8 +1295,8 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.collaboratorAdd };
 
-              (<cli.ICollaboratorAddCommand>cmd).appName = arg2;
-              (<cli.ICollaboratorAddCommand>cmd).email = arg3;
+              (cmd as cli.ICollaboratorAddCommand).appName = arg2;
+              (cmd as cli.ICollaboratorAddCommand).email = arg3;
             }
             break;
 
@@ -1305,8 +1305,8 @@ export function createCommand(): cli.ICommand {
             if (arg2) {
               cmd = { type: cli.CommandType.collaboratorList };
 
-              (<cli.ICollaboratorListCommand>cmd).appName = arg2;
-              (<cli.ICollaboratorListCommand>cmd).format = argv["format"] as any;
+              (cmd as cli.ICollaboratorListCommand).appName = arg2;
+              (cmd as cli.ICollaboratorListCommand).format = argv["format"] as any;
             }
             break;
 
@@ -1315,18 +1315,18 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.collaboratorRemove };
 
-              (<cli.ICollaboratorRemoveCommand>cmd).appName = arg2;
-              (<cli.ICollaboratorAddCommand>cmd).email = arg3;
+              (cmd as cli.ICollaboratorRemoveCommand).appName = arg2;
+              (cmd as cli.ICollaboratorRemoveCommand).email = arg3;
             }
             break;
         }
         break;
 
       case "debug":
-        cmd = <cli.IDebugCommand>{
+        cmd = {
           type: cli.CommandType.debug,
           platform: arg1,
-        };
+        } as cli.IDebugCommand;
 
         break;
 
@@ -1336,7 +1336,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.deploymentAdd };
 
-              const deploymentAddCommand = <cli.IDeploymentAddCommand>cmd;
+              const deploymentAddCommand = cmd as cli.IDeploymentAddCommand;
 
               deploymentAddCommand.appName = arg2;
               deploymentAddCommand.deploymentName = arg3;
@@ -1350,7 +1350,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.deploymentHistoryClear };
 
-              const deploymentHistoryClearCommand = <cli.IDeploymentHistoryClearCommand>cmd;
+              const deploymentHistoryClearCommand = cmd as cli.IDeploymentHistoryClearCommand;
 
               deploymentHistoryClearCommand.appName = arg2;
               deploymentHistoryClearCommand.deploymentName = arg3;
@@ -1362,7 +1362,7 @@ export function createCommand(): cli.ICommand {
             if (arg2) {
               cmd = { type: cli.CommandType.deploymentList };
 
-              const deploymentListCommand = <cli.IDeploymentListCommand>cmd;
+              const deploymentListCommand = cmd as cli.IDeploymentListCommand;
 
               deploymentListCommand.appName = arg2;
               deploymentListCommand.format = argv["format"] as any;
@@ -1375,7 +1375,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.deploymentRemove };
 
-              const deploymentRemoveCommand = <cli.IDeploymentRemoveCommand>cmd;
+              const deploymentRemoveCommand = cmd as cli.IDeploymentRemoveCommand;
 
               deploymentRemoveCommand.appName = arg2;
               deploymentRemoveCommand.deploymentName = arg3;
@@ -1387,7 +1387,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3 && arg4) {
               cmd = { type: cli.CommandType.deploymentRename };
 
-              const deploymentRenameCommand = <cli.IDeploymentRenameCommand>cmd;
+              const deploymentRenameCommand = cmd as cli.IDeploymentRenameCommand;
 
               deploymentRenameCommand.appName = arg2;
               deploymentRenameCommand.currentDeploymentName = arg3;
@@ -1400,7 +1400,7 @@ export function createCommand(): cli.ICommand {
             if (arg2 && arg3) {
               cmd = { type: cli.CommandType.deploymentHistory };
 
-              const deploymentHistoryCommand = <cli.IDeploymentHistoryCommand>cmd;
+              const deploymentHistoryCommand = cmd as cli.IDeploymentHistoryCommand;
 
               deploymentHistoryCommand.appName = arg2;
               deploymentHistoryCommand.deploymentName = arg3;
@@ -1421,7 +1421,7 @@ export function createCommand(): cli.ICommand {
       case "login":
         cmd = { type: cli.CommandType.login };
 
-        const loginCommand = <cli.ILoginCommand>cmd;
+        const loginCommand = cmd as cli.ILoginCommand;
 
         loginCommand.apiServerUrl = getServerUrl(arg1);
         loginCommand.appServerUrl = getServerUrl(arg2);
@@ -1436,7 +1436,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2) {
           cmd = { type: cli.CommandType.patch };
 
-          const patchCommand = <cli.IPatchCommand>cmd;
+          const patchCommand = cmd as cli.IPatchCommand;
 
           patchCommand.appName = arg1;
           patchCommand.deploymentName = arg2;
@@ -1456,7 +1456,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2 && arg3) {
           cmd = { type: cli.CommandType.promote };
 
-          const deploymentPromoteCommand = <cli.IPromoteCommand>cmd;
+          const deploymentPromoteCommand = cmd as cli.IPromoteCommand;
 
           deploymentPromoteCommand.appName = arg1;
           deploymentPromoteCommand.sourceDeploymentName = arg2;
@@ -1474,7 +1474,7 @@ export function createCommand(): cli.ICommand {
       case "register":
         cmd = { type: cli.CommandType.register };
 
-        const registerCommand = <cli.IRegisterCommand>cmd;
+        const registerCommand = cmd as cli.IRegisterCommand;
 
         registerCommand.serverUrl = getServerUrl(arg1);
         break;
@@ -1483,7 +1483,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2 && arg3) {
           cmd = { type: cli.CommandType.release };
 
-          const releaseCommand = <cli.IReleaseCommand>cmd;
+          const releaseCommand = cmd as cli.IReleaseCommand;
 
           releaseCommand.appName = arg1;
           releaseCommand.package = arg2;
@@ -1502,7 +1502,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2) {
           cmd = { type: cli.CommandType.releaseReact };
 
-          const releaseReactCommand = <cli.IReleaseReactCommand>cmd;
+          const releaseReactCommand = cmd as cli.IReleaseReactCommand;
 
           releaseReactCommand.appName = arg1;
           releaseReactCommand.platform = arg2;
@@ -1540,7 +1540,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2) {
           cmd = { type: cli.CommandType.releaseExpo };
 
-          const releaseExpoCommand = <cli.IReleaseReactCommand>cmd;
+          const releaseExpoCommand = cmd as cli.IReleaseReactCommand;
 
           releaseExpoCommand.appName = arg1;
           releaseExpoCommand.platform = arg2;
@@ -1578,7 +1578,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2 && arg3) {
           cmd = { type: cli.CommandType.releaseNative };
 
-          const releaseBinaryCommand = <cli.IReleaseNativeCommand>cmd;
+          const releaseBinaryCommand = cmd as cli.IReleaseNativeCommand;
 
           releaseBinaryCommand.appName = arg1;
           releaseBinaryCommand.platform = arg2;
@@ -1598,7 +1598,7 @@ export function createCommand(): cli.ICommand {
         if (arg1 && arg2) {
           cmd = { type: cli.CommandType.rollback };
 
-          const rollbackCommand = <cli.IRollbackCommand>cmd;
+          const rollbackCommand = cmd as cli.IRollbackCommand;
 
           rollbackCommand.appName = arg1;
           rollbackCommand.deploymentName = arg2;
@@ -1612,7 +1612,7 @@ export function createCommand(): cli.ICommand {
           case "ls":
             cmd = { type: cli.CommandType.sessionList };
 
-            (<cli.ISessionListCommand>cmd).format = argv["format"] as any;
+            (cmd as cli.ISessionListCommand).format = argv["format"] as any;
             break;
 
           case "remove":
@@ -1620,7 +1620,7 @@ export function createCommand(): cli.ICommand {
             if (arg2) {
               cmd = { type: cli.CommandType.sessionRemove };
 
-              (<cli.ISessionRemoveCommand>cmd).machineName = arg2;
+              (cmd as cli.ISessionRemoveCommand).machineName = arg2;
             }
             break;
         }
