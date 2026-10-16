@@ -177,7 +177,8 @@ export interface IPromoteCommand extends ICommand, IPackageInfo {
 }
 
 export interface IRegisterCommand extends ICommand {
-  serverUrl?: string;
+  apiServerUrl?: string;
+  appServerUrl?: string;
 }
 
 export interface IReleaseBaseCommand extends ICommand, IPackageInfo {

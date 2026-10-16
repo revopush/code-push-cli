@@ -25,7 +25,7 @@ export default async function sign(privateKeyPath: string, updateContentsPath: s
     throw new Error(`The path specified for the signing key ("${privateKeyPath}") was not valid.`);
   }
 
-  // If releasing a single file, copy the file to a temporary 'CodePush' directory in which to publish the release
+  // A single file is released inside a 'CodePush' folder
   if (!isDirectory(updateContentsPath)) {
     updateContentsPath = copyFileToTmpDir(updateContentsPath);
   }

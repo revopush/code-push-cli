@@ -571,7 +571,7 @@ class AccountManager {
 
     request.set("Accept", `application/vnd.code-push.v${AccountManager.API_VERSION}+json`);
     request.set("Authorization", `Bearer ${this._accessKey}`);
-    request.set("X-CodePush-SDK-Version", packageJson.version); // TODO get version differently without require("../../package.json");
+    request.set("X-CodePush-SDK-Version", packageJson.version);
   }
 }
 

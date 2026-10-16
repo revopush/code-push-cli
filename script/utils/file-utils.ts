@@ -63,7 +63,7 @@ export function fileDoesNotExistOrIsDirectory(path: string): boolean {
 }
 
 export function normalizePath(filePath: string): string {
-  //replace all backslashes coming from cli running on windows machines by slashes
+  // Windows paths use backslashes; zip entries need slashes
   return filePath.replace(/\\/g, "/");
 }
 
@@ -103,13 +103,19 @@ export function createZip(zipPath: string, entries: ZipEntry[]): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const zipFile = new yazl.ZipFile();
     const writeStream = fs.createWriteStream(zipPath);
+    let failure: Error | undefined;
+    // Settle only once the zip file is closed, so a caller can delete it
+    const fail = (error: Error): void => {
+      failure ??= error;
+      writeStream.destroy();
+    };
 
     // yazl reports unreadable input files on the ZipFile itself
-    zipFile.on("error", reject);
+    zipFile.on("error", fail);
     zipFile.outputStream
       .pipe(writeStream)
-      .on("error", reject)
-      .on("close", () => resolve());
+      .on("error", fail)
+      .on("close", () => (failure ? reject(failure) : resolve()));
 
     for (const [filePath, zipEntryPath] of entries) {
       zipFile.addFile(filePath, zipEntryPath);

@@ -34,7 +34,16 @@ describe("terminal", () => {
 
     it("still fails on other prompt errors, so scripts don't treat them as a cancel", async () => {
       answer(new Error("stdin closed"));
-      await assert.rejects(confirm());
+      await assert.rejects(confirm(), { message: "stdin closed" });
+    });
+
+    it("rejects on a prompt error reported asynchronously, as the real prompt does", async () => {
+      sinon
+        .stub(prompt, "get")
+        .callsFake((_schema: unknown, callback: (error: Error | null) => void) =>
+          setImmediate(() => callback(new Error("stdin closed")))
+        );
+      await assert.rejects(confirm(), { message: "stdin closed" });
     });
   });
 });

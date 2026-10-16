@@ -46,17 +46,14 @@ export async function extractMetadataFromIOS(ipaPath: string, outputFolder: stri
   log(chalk.cyan(`\nFound main.jsbundle, calculating hash:\n`));
   fileHashes["CodePush/main.jsbundle"] = sha256(bundleBuffer);
 
-  // Write bundle to output folder (needed for the release package zip)
   const outputCodePushFolder = path.join(outputFolder, "CodePush");
   fs.mkdirSync(outputCodePushFolder, { recursive: true });
   fs.writeFileSync(path.join(outputCodePushFolder, "main.jsbundle"), bundleBuffer);
 
-  // Save packageManifest.json
   const manifestPath = path.join(outputFolder, "packageManifest.json");
   fs.writeFileSync(manifestPath, JSON.stringify(fileHashes, null, 2));
   log(chalk.cyan(`\nSaved packageManifest.json with ${Object.keys(fileHashes).length} entries.\n`));
 
-  // Create zip archive with packageManifest.json and bundle file
   const zipPath = path.join(os.tmpdir(), `CodePushBinary-${Date.now()}.zip`);
   await createZipArchive(outputFolder, zipPath, ["packageManifest.json", "CodePush/main.jsbundle"]);
 

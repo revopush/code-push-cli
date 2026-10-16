@@ -16,23 +16,16 @@ export interface BundleOptions {
   extraBundlerOptions: string[];
 }
 
-export const runReactNativeBundleCommand = async (
+export function runReactNativeBundleCommand(
   { platform, development, outputFolder, bundleName, packagerSourceMap, extraBundlerOptions }: BundleOptions,
   entryFile: string,
   isHermes: boolean
-) => {
-  const reactNativeBundleArgs: string[] = [];
-  const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
-
-  if (typeof envNodeArgs !== "undefined") {
-    reactNativeBundleArgs.push(...envNodeArgs.trim().split(/\s+/));
-  }
-
+): Promise<void> {
   const reactNativePackagePath = getReactNativePackagePath();
   const oldCliPath = path.join(reactNativePackagePath, "local-cli", "cli.js");
   const cliPath = fs.existsSync(oldCliPath) ? oldCliPath : path.join(reactNativePackagePath, "cli.js");
 
-  reactNativeBundleArgs.push(
+  return runBundler("react-native bundle", [
     cliPath,
     "bundle",
     "--assets-dest",
@@ -45,59 +38,24 @@ export const runReactNativeBundleCommand = async (
     entryFile,
     "--platform",
     platform,
-    "--reset-cache"
-  );
+    "--reset-cache",
+    "--sourcemap-output",
+    packagerSourceMap,
+    ...getMinifyParams(platform, isHermes),
+    ...extraBundlerOptions,
+  ]);
+}
 
-  reactNativeBundleArgs.push("--sourcemap-output", packagerSourceMap);
-
-  reactNativeBundleArgs.push(...getMinifyParams(platform, isHermes));
-
-  if (extraBundlerOptions.length > 0) {
-    reactNativeBundleArgs.push(...extraBundlerOptions);
-  }
-
-  log(chalk.cyan('Running "react-native bundle" command:\n'));
-  const reactNativeBundleProcess = spawn("node", reactNativeBundleArgs);
-  log(`node ${reactNativeBundleArgs.join(" ")}`);
-
-  return new Promise<void>((resolve, reject) => {
-    reactNativeBundleProcess.stdout.on("data", (data: Buffer) => {
-      log(data.toString().trim());
-    });
-
-    reactNativeBundleProcess.stderr.on("data", (data: Buffer) => {
-      console.error(data.toString().trim());
-    });
-
-    reactNativeBundleProcess.on("close", (exitCode: number) => {
-      if (exitCode) {
-        reject(new Error(`"react-native bundle" command exited with code ${exitCode}.`));
-      }
-
-      resolve();
-    });
-  });
-};
-
-export const runExpoExportEmbedCommand = async ({
+export function runExpoExportEmbedCommand({
   platform,
   development,
   outputFolder,
   bundleName,
   packagerSourceMap,
   extraBundlerOptions,
-}: BundleOptions) => {
-  const expoBundleArgs: string[] = [];
-  const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
-
-  if (typeof envNodeArgs !== "undefined") {
-    expoBundleArgs.push(...envNodeArgs.trim().split(/\s+/));
-  }
-
-  const expoCliPath = getExpoCliPath();
-
-  expoBundleArgs.push(
-    expoCliPath,
+}: BundleOptions): Promise<void> {
+  return runBundler("expo export:embed", [
+    getExpoCliPath(),
     "export:embed",
     "--assets-dest",
     outputFolder,
@@ -109,43 +67,34 @@ export const runExpoExportEmbedCommand = async ({
     platform,
     "--minify",
     "false",
-    "--reset-cache"
-  );
+    "--reset-cache",
+    "--sourcemap-output",
+    packagerSourceMap,
+    ...extraBundlerOptions,
+    process.cwd(),
+  ]);
+}
 
-  expoBundleArgs.push("--sourcemap-output", packagerSourceMap);
-
-  if (extraBundlerOptions.length > 0) {
-    expoBundleArgs.push(...extraBundlerOptions);
-  }
-
-  log(chalk.cyan('Running "expo export:embed" command:\n'));
-
-  const projectRoot = process.cwd();
-  expoBundleArgs.push(projectRoot);
-
-  log("expoBundleArgs raw:" + JSON.stringify(expoBundleArgs, null, 2));
-
-  const expoBundleProcess = spawn("node", expoBundleArgs);
-  log(`node ${expoBundleArgs.join(" ")}`);
+// Runs the bundler's script with node; fails unless it exits with code 0
+function runBundler(name: string, scriptArgs: string[]): Promise<void> {
+  const nodeArgs = [...(process.env.CODE_PUSH_NODE_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []), ...scriptArgs];
+  log(chalk.cyan(`Running "${name}" command:\n`));
+  const bundlerProcess = spawn("node", nodeArgs);
+  log(`node ${nodeArgs.join(" ")}`);
 
   return new Promise<void>((resolve, reject) => {
-    expoBundleProcess.stdout.on("data", (data: Buffer) => {
-      log(data.toString().trim());
-    });
-
-    expoBundleProcess.stderr.on("data", (data: Buffer) => {
-      console.error(data.toString().trim());
-    });
-
-    expoBundleProcess.on("close", (exitCode: number) => {
-      if (exitCode) {
-        reject(new Error(`"expo export:embed" command exited with code ${exitCode}.`));
+    bundlerProcess.stdout.on("data", (data: Buffer) => log(data.toString().trim()));
+    bundlerProcess.stderr.on("data", (data: Buffer) => console.error(data.toString().trim()));
+    bundlerProcess.on("error", reject);
+    bundlerProcess.on("close", (exitCode: number | null, signal: NodeJS.Signals | null) => {
+      if (exitCode === 0) {
+        resolve();
+      } else {
+        reject(new Error(`"${name}" command ${signal ? `was stopped by ${signal}` : `exited with code ${exitCode}`}.`));
       }
-
-      resolve();
     });
   });
-};
+}
 
 function getMinifyParams(platform: string, isHermes: boolean): string[] {
   switch (platform) {

@@ -3,7 +3,6 @@ import * as cli from "../types/cli";
 import { AccessKey, App, CollaboratorMap, CollaboratorProperties, Deployment, Package, PackageWithMetrics, Session } from "../types";
 import { log } from "./terminal";
 import AccountManager = require("../management-sdk");
-import wordwrap = require("wordwrap");
 
 const Table = require("cli-table");
 
@@ -14,7 +13,7 @@ export function printAppList(format: string, apps: App[]): void {
     const headers = ["Name", "Deployments"];
     printTable(headers, (dataSource: any[]): void => {
       apps.forEach((app: App): void => {
-        const row = [app.name, wordwrap(50)(app.deployments.join(", "))];
+        const row = [app.name, wrap(app.deployments.join(", "), 50)];
         dataSource.push(row);
       });
     });
@@ -117,7 +116,7 @@ export function printDeploymentHistory(
           row.push(releasedBy);
         }
 
-        row.push(packageObject.description ? wordwrap(30)(packageObject.description) : "");
+        row.push(packageObject.description ? wrap(packageObject.description, 30) : "");
         row.push(getPackageMetricsString(packageObject) + (packageObject.isDisabled ? `\n${chalk.green("Disabled:")} Yes` : ""));
         if (packageObject.isDisabled) {
           row = row.map((cellContents: string) => applyChalkSkippingLineBreaks(cellContents, chalk.dim));
@@ -158,7 +157,7 @@ function getPackageString(packageObject: Package): string {
     "\n" +
     chalk.green("Released By: ") +
     (packageObject.releasedBy ? packageObject.releasedBy : "") +
-    (packageObject.description ? wordwrap(70)("\n" + chalk.green("Description: ") + packageObject.description) : "");
+    (packageObject.description ? wrap("\n" + chalk.green("Description: ") + packageObject.description, 70) : "");
 
   if (packageObject.isDisabled) {
     packageString += `\n${chalk.green("Disabled:")} Yes`;
@@ -293,4 +292,25 @@ function printTable(columnNames: string[], readData: (dataSource: any[]) => void
   readData(table);
 
   log(table.toString());
+}
+
+/** Wraps text at spaces so no line is longer than width, unless a single word is */
+function wrap(text: string, width: number): string {
+  return text
+    .replace(/\t/g, "    ") // The table counts a tab as one column, but the terminal shows it wider
+    .split("\n")
+    .map((line) => {
+      const lines: string[] = [];
+      let current = "";
+      for (const word of line.split(" ")) {
+        if (current && current.length + 1 + word.length > width) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = current ? `${current} ${word}` : word;
+        }
+      }
+      return [...lines, current].join("\n");
+    })
+    .join("\n");
 }

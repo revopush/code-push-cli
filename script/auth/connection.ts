@@ -41,7 +41,6 @@ export function deserializeConnectionInfo(): ILoginConnectionInfo {
     });
     let connectionInfo: ILegacyLoginConnectionInfo | ILoginConnectionInfo = JSON.parse(savedConnection);
 
-    // If the connection info is in the legacy format, convert it to the modern format
     if ((connectionInfo as ILegacyLoginConnectionInfo).accessKeyName) {
       connectionInfo = {
         accessKey: (connectionInfo as ILegacyLoginConnectionInfo).accessKeyName,
@@ -75,12 +74,7 @@ export function serializeConnectionInfo(accessKey: string, preserveAccessKeyOnLo
 
 export function getSdk(accessKey: string, customServerUrl: string): AccountManager {
   const sdk: any = new AccountManager(accessKey, CLI_HEADERS, customServerUrl);
-  /*
-   * If the server returns `Unauthorized`, it must be due to an invalid
-   * (or expired) access key. For convenience, we patch every SDK call
-   * to delete the cached connection so the user can simply
-   * login again instead of having to log out first.
-   */
+  // Unauthorized means the access key is invalid or expired: forget it, so the user can log in again without logging out
   Object.getOwnPropertyNames(AccountManager.prototype).forEach((functionName: any) => {
     if (typeof sdk[functionName] === "function") {
       const originalFunction = sdk[functionName];

@@ -32,8 +32,7 @@ export function generatePackageManifestFromZip(filePath: string): Promise<Packag
   return new Promise<PackageManifest>((resolve, reject) => {
     yauzl.open(filePath, { lazyEntries: true }, (error?: any, openedZipFile?: any): void => {
       if (error) {
-        // This is the first time we try to read the package as a .zip file;
-        // however, it may not be a .zip file.  Handle this gracefully.
+        // The package may not be a zip
         resolve(null);
         return;
       }
@@ -42,7 +41,6 @@ export function generatePackageManifestFromZip(filePath: string): Promise<Packag
       const fileHashesMap = new Map<string, string>();
       const hashFilePromises: Promise<void>[] = [];
 
-      // Read each entry in the archive sequentially and generate a hash for it.
       zipFile.readEntry();
       zipFile
         .on("error", (error: any): void => {
@@ -148,8 +146,7 @@ export class PackageManifest {
       entries.push(name + ":" + hash);
     });
 
-    // Make sure this list is alphabetically ordered so that other clients
-    // can also compute this hash easily given the update contents.
+    // Sorted, so other clients compute the same hash from the same contents
     entries = entries.sort();
 
     return crypto.createHash(HASH_ALGORITHM).update(JSON.stringify(entries)).digest("hex");

@@ -153,7 +153,6 @@ export async function runHermesEmitBinaryCommand(
   const hermesc = await findHermesc(project);
 
   const hermesArgs = [
-    ...(process.env.CODE_PUSH_NODE_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []),
     "-emit-binary",
     "-O",
     "-out",
