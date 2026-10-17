@@ -3,7 +3,6 @@
 
 import * as yargs from "yargs";
 import * as cli from "../types/cli";
-import backslash = require("backslash");
 import parseDuration = require("parse-duration");
 // Importing this module defines the commands with yargs, which must happen before argv is parsed
 import { isHelpShown } from "./commands";
@@ -14,7 +13,6 @@ export function createCommand(): cli.ICommand {
   const argv = yargs.parseSync();
 
   if (!isHelpShown() && argv._ && argv._.length > 0) {
-    // Create a command object
     const arg0: any = argv._[0];
     const arg1: any = argv._[1];
     const arg2: any = argv._[2];
@@ -275,7 +273,7 @@ export function createCommand(): cli.ICommand {
           patchCommand.deploymentName = arg2;
           patchCommand.label = argv["label"] as any;
           // Description must be set to null to indicate that it is not being patched.
-          patchCommand.description = argv["description"] ? backslash(argv["description"]) : null;
+          patchCommand.description = argv["description"] ? unescapeBackslashes(argv["description"] as string) : null;
           patchCommand.disabled = argv["disabled"] as any;
           patchCommand.mandatory = argv["mandatory"] as any;
           patchCommand.rollout = getRolloutValue(argv["rollout"] as any);
@@ -294,7 +292,7 @@ export function createCommand(): cli.ICommand {
           deploymentPromoteCommand.appName = arg1;
           deploymentPromoteCommand.sourceDeploymentName = arg2;
           deploymentPromoteCommand.destDeploymentName = arg3;
-          deploymentPromoteCommand.description = argv["description"] ? backslash(argv["description"]) : "";
+          deploymentPromoteCommand.description = argv["description"] ? unescapeBackslashes(argv["description"] as string) : "";
           deploymentPromoteCommand.label = argv["label"] as any;
           deploymentPromoteCommand.disabled = argv["disabled"] as any;
           deploymentPromoteCommand.mandatory = argv["mandatory"] as any;
@@ -309,7 +307,8 @@ export function createCommand(): cli.ICommand {
 
         const registerCommand = cmd as cli.IRegisterCommand;
 
-        registerCommand.serverUrl = getServerUrl(arg1);
+        registerCommand.apiServerUrl = getServerUrl(arg1);
+        registerCommand.appServerUrl = getServerUrl(arg2);
         break;
 
       case "release":
@@ -323,7 +322,7 @@ export function createCommand(): cli.ICommand {
           releaseCommand.appStoreVersion = arg3;
           releaseCommand.buildNumber = argv["buildNumber"] as any;
           releaseCommand.deploymentName = argv["deploymentName"] as any;
-          releaseCommand.description = argv["description"] ? backslash(argv["description"]) : "";
+          releaseCommand.description = argv["description"] ? unescapeBackslashes(argv["description"] as string) : "";
           releaseCommand.disabled = argv["disabled"] as any;
           releaseCommand.mandatory = argv["mandatory"] as any;
           releaseCommand.noDuplicateReleaseError = argv["noDuplicateReleaseError"] as any;
@@ -358,8 +357,6 @@ export function createCommand(): cli.ICommand {
           releaseBinaryCommand.initial = true;
           releaseBinaryCommand.disabled = true;
           releaseBinaryCommand.mandatory = false;
-          // TODO add support for releaseBinaryCommand.bundleName
-          // TODO add support for releaseBinaryCommand.outputDir
         }
         break;
 
@@ -420,7 +417,7 @@ function getReleaseReactCommand(
   releaseReactCommand.bundleName = argv["bundleName"] as any;
   releaseReactCommand.deploymentName = argv["deploymentName"] as any;
   releaseReactCommand.disabled = argv["disabled"] as any;
-  releaseReactCommand.description = argv["description"] ? backslash(argv["description"]) : "";
+  releaseReactCommand.description = argv["description"] ? unescapeBackslashes(argv["description"] as string) : "";
   releaseReactCommand.development = argv["development"] as any;
   releaseReactCommand.entryFile = argv["entryFile"] as any;
   releaseReactCommand.gradleFile = argv["gradleFile"] as any;
@@ -471,4 +468,20 @@ function parseDurationMilliseconds(durationString: string): number {
   // parse-duration v2 is ESM: the parser is `.default`, and `?? 0` restores v1's
   // handling of unparseable input (v2 returns null instead of 0).
   return Math.floor(parseDuration.default(durationString) ?? 0);
+}
+
+const ESCAPES: Record<string, string> = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
+
+/** Turns escapes typed in a description, like \n, \101 or \u00e9, into the characters they stand for, as the backslash package did */
+function unescapeBackslashes(text: string | string[]): string {
+  // A repeated option is an array, which the backslash package joined unchanged
+  if (typeof text !== "string") {
+    return Array.isArray(text) ? text.join("") : "";
+  }
+  // Octal escapes take up to three digits; a backslash at the very end is dropped
+  return text.replace(/\\(u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-3][0-7]{0,2}|[4-7][0-7]?|[\s\S]?)/g, (_, escape: string) => {
+    if (/^[0-7]/.test(escape)) return String.fromCharCode(parseInt(escape, 8));
+    if (escape.length > 1) return String.fromCharCode(parseInt(escape.slice(1), 16));
+    return ESCAPES[escape] ?? escape;
+  });
 }

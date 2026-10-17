@@ -1,7 +1,7 @@
 import { strict as assert } from "assert";
 import * as fs from "fs";
 import * as path from "path";
-import { copyFileToTmpDir, listFiles } from "../script/utils/file-utils";
+import { copyFileToTmpDir, createZip, listFiles } from "../script/utils/file-utils";
 import { useTempDirectory } from "./helpers/temp-directory";
 
 describe("file-utils", () => {
@@ -41,6 +41,18 @@ describe("file-utils", () => {
       } finally {
         fs.rmSync(folder, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("createZip", () => {
+    it("rejects only after closing the zip, so the caller can delete it", async () => {
+      const zipPath = path.join(dir.path, "out.zip");
+
+      await assert.rejects(createZip(zipPath, [[path.join(dir.path, "missing.txt"), "missing.txt"]]), { code: "ENOENT" });
+      fs.rmSync(zipPath, { force: true });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      assert.equal(fs.existsSync(zipPath), false);
     });
   });
 });

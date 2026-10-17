@@ -25,10 +25,8 @@ export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
     log(chalk.yellow(`\nWarning: CodepushMetadata file not found in APK. Check used version of SDK\n`));
   }
 
-  // Get index.android.bundle from root of app folder
   const mainJsBundlePath = path.join(assetsFolder, "index.android.bundle");
   if (fs.existsSync(mainJsBundlePath)) {
-    // Copy bundle to output folder
     const outputCodePushFolder = path.join(outputFolder, "CodePush");
     fs.mkdirSync(outputCodePushFolder, { recursive: true });
     const outputBundlePath = path.join(outputCodePushFolder, "index.android.bundle");
@@ -37,12 +35,10 @@ export async function extractMetadataFromAndroid(extractFolder, outputFolder) {
     throw new Error("index.android.bundle not found in APK root folder.");
   }
 
-  // Save packageManifest.json
   const manifestPath = path.join(outputFolder, "packageManifest.json");
   fs.writeFileSync(manifestPath, JSON.stringify(fileHashes, null, 2));
   log(chalk.cyan(`\nSaved packageManifest.json with ${Object.keys(fileHashes).length} entries.\n`));
 
-  // Create zip archive with packageManifest.json and bundle file
   const zipPath = path.join(os.tmpdir(), `CodePushBinary-${Date.now()}.zip`);
   await createZipArchive(outputFolder, zipPath, ["packageManifest.json", "CodePush/index.android.bundle"]);
 
@@ -61,9 +57,6 @@ async function takeHashesFromMetadata(metadataPath: string): Promise<BinaryHashe
   return Object.fromEntries(metadata.manifest.map((item) => item.split(":")));
 }
 
-// ---------------------------------------------------------------------------
-// Android App Bundle (.aab)
-// ---------------------------------------------------------------------------
 // Minimal .aab manifest reader; replaces the unmaintained aab-parser, which
 // pinned a vulnerable protobufjs (^6.11.2).
 

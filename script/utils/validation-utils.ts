@@ -1,9 +1,17 @@
 import * as semver from "semver";
 
-const emailValidator = require("email-validator");
+// The rules of the email-validator package (2.0.4) this replaced
+const EMAIL_REGEX =
+  /^[-!#$%&'*+/0-9=?A-Z^_a-z{|}~](\.?[-!#$%&'*+/0-9=?A-Z^_a-z`{|}~])*@[a-zA-Z0-9](-*\.?[a-zA-Z0-9])*\.[a-zA-Z](-?[a-zA-Z0-9])+$/;
+
+function isValidEmail(email: string): boolean {
+  if (!email || email.length > 254 || !EMAIL_REGEX.test(email)) return false;
+  const [localPart, domain] = email.split("@");
+  return localPart.length <= 64 && domain.split(".").every((label) => label.length <= 63);
+}
 
 export function throwForInvalidEmail(email: string): void {
-  if (!emailValidator.validate(email)) {
+  if (!isValidEmail(email)) {
     throw new Error('"' + email + '" is an invalid e-mail address.');
   }
 }

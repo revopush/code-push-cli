@@ -9,7 +9,7 @@ export function log(message: unknown): void {
 
 export const confirm = (message: string = "Are you sure?"): Promise<boolean> => {
   message += " (y/N):";
-  return new Promise<boolean>((resolve): void => {
+  return new Promise<boolean>((resolve, reject): void => {
     prompt.message = "";
     prompt.delimiter = "";
 
@@ -24,6 +24,16 @@ export const confirm = (message: string = "Are you sure?"): Promise<boolean> => 
         },
       },
       (err: any, result: any): void => {
+        // Ctrl+C means "no"; other errors fail the command
+        if (err) {
+          if (err.message === "canceled") {
+            resolve(false);
+          } else {
+            reject(err);
+          }
+          return;
+        }
+
         const accepted = result.response && result.response.toLowerCase() === "y";
         const rejected = !result.response || result.response.toLowerCase() === "n";
 

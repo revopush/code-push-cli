@@ -4,8 +4,10 @@
   "description": "Management CLI for the CodePush service",
   "scripts": {
     "start": "node ./bin/script/cli.js",
-    "build": "tsc",
-    "pretest": "node -e \"require('fs').rmSync('bin', { recursive: true, force: true })\"",
+    "clean": "node -e \"require('fs').rmSync('bin', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
+    "prepack": "npm run build",
+    "pretest": "npm run clean",
     "test": "tsc && node -e \"require('fs').cpSync('test/resources', 'bin/test/resources', { recursive: true })\" && mocha",
     "prettier": "prettier --write \"./**/*.ts\"",
     "format:check": "prettier --check \"script/**/*.ts\" \"test/**/*.ts\"",
@@ -15,6 +17,9 @@
   "bin": {
     "revopush": "./bin/script/cli.js"
   },
+  "files": [
+    "bin/script"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/revopush/code-push-cli"
@@ -26,12 +31,10 @@
   ],
   "dependencies": {
     "@devicefarmer/adbkit-apkreader": "^3.2.4",
-    "backslash": "^0.2.0",
     "bplist-parser": "^0.3.2",
     "chalk": "^4.1.2",
     "cli-table": "^0.3.11",
     "dotenv": "^17.2.1",
-    "email-validator": "^2.0.4",
     "gradle-to-js": "2.0.1",
     "jsonwebtoken": "^9.0.2",
     "opener": "^1.5.2",
@@ -42,10 +45,7 @@
     "properties": "^1.2.1",
     "protobufjs": "^7.6.3",
     "semver": "^7.5.3",
-    "simctl": "^2.0.3",
     "superagent": "^8.0.9",
-    "which": "^1.2.7",
-    "wordwrap": "1.0.0",
     "xcode": "^3.0.1",
     "yargs": "^17.7.2",
     "yauzl": "^3.4.0",

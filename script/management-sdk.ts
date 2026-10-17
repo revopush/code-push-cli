@@ -364,7 +364,10 @@ class AccountManager {
         })
         .end((err: any, res: superagent.Response) => {
           if (packageFile.isTemporary) {
-            fs.unlinkSync(packageFile.path);
+            // Best effort: failing to delete the temp file must not hide the upload's result
+            try {
+              fs.rmSync(packageFile.path, { force: true });
+            } catch {}
           }
 
           if (err) {
@@ -431,11 +434,16 @@ class AccountManager {
     const files: string[] = await listFiles(filePath);
     const baseDirectoryPath: string = path.dirname(filePath);
     const zipPath: string = path.join(process.cwd(), this.generateRandomFilename(15) + ".zip");
-    await createZip(
-      zipPath,
-      // yazl does not like backslash (\) in the metadata path.
-      files.map((file) => [file, normalizePath(path.relative(baseDirectoryPath, file))])
-    );
+    try {
+      await createZip(
+        zipPath,
+        // yazl does not like backslash (\) in the metadata path.
+        files.map((file) => [file, normalizePath(path.relative(baseDirectoryPath, file))])
+      );
+    } catch (error) {
+      fs.rmSync(zipPath, { force: true });
+      throw error;
+    }
     return { isTemporary: true, path: zipPath };
   }
 
@@ -563,7 +571,7 @@ class AccountManager {
 
     request.set("Accept", `application/vnd.code-push.v${AccountManager.API_VERSION}+json`);
     request.set("Authorization", `Bearer ${this._accessKey}`);
-    request.set("X-CodePush-SDK-Version", packageJson.version); // TODO get version differently without require("../../package.json");
+    request.set("X-CodePush-SDK-Version", packageJson.version);
   }
 }
 

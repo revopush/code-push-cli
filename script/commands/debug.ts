@@ -3,10 +3,6 @@
 
 import * as childProcess from "child_process";
 import * as cli from "../../script/types/cli";
-import * as path from "path";
-
-const simctl = require("simctl");
-const which = require("which");
 
 interface IDebugPlatform {
   getLogProcess(): any;
@@ -15,9 +11,7 @@ interface IDebugPlatform {
 
 class AndroidDebugPlatform implements IDebugPlatform {
   public getLogProcess(): any {
-    try {
-      which.sync("adb");
-    } catch {
+    if (childProcess.spawnSync("adb", ["version"]).error) {
       throw new Error("ADB command not found. Please ensure it is installed and available on your path.");
     }
 
@@ -26,10 +20,7 @@ class AndroidDebugPlatform implements IDebugPlatform {
       throw new Error("No Android devices found. Re-run this command after starting one.");
     }
 
-    // For now there is no ability to specify device for debug like:
-    // code-push debug android "192.168.121.102:5555"
-    // So we have to throw an error in case more than 1 android device was attached
-    // otherwise we will very likely run into an exception while trying to read ‘adb logcat’ from device which codepushified app is not running on.
+    // adb logcat can't be pointed at one device here, so it would read whichever adb picks
     if (numberOfAvailableDevices > 1) {
       throw new Error(`Found "${numberOfAvailableDevices}" android devices. Please leave only one device you need to debug.`);
     }
@@ -37,43 +28,27 @@ class AndroidDebugPlatform implements IDebugPlatform {
     return childProcess.spawn("adb", ["logcat"]);
   }
 
-  // The following is an example of what the output looks
-  // like when running the "adb devices" command.
-  //
-  // List of devices attached
-  // emulator-5554    device
-  // 192.168.121.102:5555    device
+  // Counts the "<serial>    device" lines of `adb devices`
   private getNumberOfAvailableDevices(): number {
     const output = childProcess.execSync("adb devices").toString();
-    const matches = output.match(/\b(device)\b/gim);
-    if (matches !== null) {
-      return matches.length;
-    }
-    return 0;
+    return output.match(/\b(device)\b/gim)?.length ?? 0;
   }
 
   public normalizeLogMessage(message: string): string {
-    // Check to see whether the message includes the source URL
-    // suffix, and if so, strip it. This can occur in Android Cordova apps.
+    // Android Cordova apps append the source URL
     const sourceURLIndex: number = message.indexOf('", source: file:///');
-    if (~sourceURLIndex) {
-      return message.substring(0, sourceURLIndex);
-    } else {
-      return message;
-    }
+    return sourceURLIndex === -1 ? message : message.substring(0, sourceURLIndex);
   }
 }
 
 class iOSDebugPlatform implements IDebugPlatform {
   private getSimulatorID(): string {
-    const output: any = simctl.list({ devices: true, silent: true });
-    const simulators: string[] = output.json.devices
-      .map((platform: any) => platform.devices)
-      .reduce((prev: any, next: any) => prev.concat(next))
-      .filter((device: any) => device.state === "Booted")
-      .map((device: any) => device.id);
-
-    return simulators[0];
+    // Devices are grouped by runtime
+    const { devices } = JSON.parse(childProcess.execFileSync("xcrun", ["simctl", "list", "devices", "--json"], { encoding: "utf8" }));
+    const booted: any = Object.values(devices)
+      .flat()
+      .find((device: any) => device.state === "Booted");
+    return booted?.udid;
   }
 
   public getLogProcess(): any {
@@ -86,8 +61,20 @@ class iOSDebugPlatform implements IDebugPlatform {
       throw new Error("No iOS simulators found. Re-run this command after starting one.");
     }
 
-    const logFilePath: string = path.join(process.env.HOME, "Library/Logs/CoreSimulator", simulatorID, "system.log");
-    return childProcess.spawn("tail", ["-f", logFilePath]);
+    // Simulators no longer write system.log; their logs are read through unified logging
+    return childProcess.spawn("xcrun", [
+      "simctl",
+      "spawn",
+      simulatorID,
+      "log",
+      "stream",
+      "--level",
+      "debug",
+      "--style",
+      "compact",
+      "--predicate",
+      'eventMessage CONTAINS "[CodePush]"',
+    ]);
   }
 
   public normalizeLogMessage(message: string): string {
@@ -102,12 +89,7 @@ function processLogData(logData: Buffer) {
     .split("\n")
     .filter((line: string) => line.indexOf(logMessagePrefix) > -1)
     .map((line: string) => {
-      // Allow the current platform
-      // to normalize the message first.
       line = this.normalizeLogMessage(line);
-
-      // Strip the CodePush-specific, platform agnostic
-      // log message prefix that is added to each entry.
       const message = line.substring(line.indexOf(logMessagePrefix) + logMessagePrefix.length);
 
       const timeStamp = new Date().toLocaleTimeString("en-US", { hourCycle: "h23" });
@@ -136,9 +118,12 @@ export default function (command: cli.IDebugCommand): Promise<void> {
       console.log(`Listening for ${platform} debug logs (Press CTRL+C to exit)`);
 
       logProcess.stdout.on("data", processLogData.bind(debugPlatform));
-      logProcess.stderr.on("data", reject);
-
-      logProcess.on("close", resolve);
+      // Log tools also print warnings to stderr, so only a failed exit ends the command with an error
+      logProcess.stderr.on("data", (data: Buffer) => console.error(data.toString().trim()));
+      logProcess.on("error", reject);
+      logProcess.on("close", (exitCode: number | null) =>
+        exitCode ? reject(new Error(`Reading ${platform} debug logs failed (exit code ${exitCode}).`)) : resolve()
+      );
     } catch (e) {
       reject(e);
     }

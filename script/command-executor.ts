@@ -152,11 +152,6 @@ async function appRename(command: cli.IAppRenameCommand): Promise<void> {
   log('Successfully renamed the "' + command.currentAppName + '" app to "' + command.newAppName + '".');
 }
 
-export const createEmptyTempReleaseFolder = async (folderPath: string): Promise<void> => {
-  await deleteFolder(folderPath);
-  fs.mkdirSync(folderPath);
-};
-
 async function appTransfer(command: cli.IAppTransferCommand): Promise<void> {
   throwForInvalidEmail(command.email);
 
@@ -195,18 +190,6 @@ async function removeCollaborator(command: cli.ICollaboratorRemoveCommand): Prom
   log("App collaborator removal cancelled.");
 }
 
-function deleteFolder(folderPath: string): Promise<void> {
-  return fs.promises.rm(folderPath, { recursive: true, force: true, maxRetries: 3 });
-}
-
-async function deleteReactTempFolders(): Promise<void> {
-  const tempFolder: string = os.tmpdir();
-  // An unreadable temp folder means there is nothing to delete
-  const names: string[] = await fs.promises.readdir(tempFolder).catch((): string[] => []);
-  const reactFolders: string[] = names.filter((name) => name.startsWith("react-"));
-  await Promise.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
-}
-
 async function deploymentAdd(command: cli.IDeploymentAddCommand): Promise<void> {
   const deployment: Deployment = await sdk.addDeployment(command.appName, command.deploymentName, command.key);
   log(
@@ -236,9 +219,18 @@ async function deploymentHistoryClear(command: cli.IDeploymentHistoryClearComman
   log("Clear deployment cancelled.");
 }
 
+function getTotalActiveFromDeploymentMetrics(metrics: DeploymentMetrics): number {
+  let totalActive = 0;
+  Object.keys(metrics).forEach((label: string) => {
+    totalActive += metrics[label].active;
+  });
+
+  return totalActive;
+}
+
 export const deploymentList = async (command: cli.IDeploymentListCommand, showPackage: boolean = true): Promise<void> => {
   throwForInvalidOutputFormat(command.format);
-  const DEPLOYMENTS_MAX_LENGTH = 10; // do not take metrics if number of deployment higher than this
+  const DEPLOYMENTS_MAX_LENGTH = 10; // Metrics are skipped for apps with more deployments
 
   const deployments: Deployment[] = await sdk.getDeployments(command.appName);
   if (showPackage && deployments.length < DEPLOYMENTS_MAX_LENGTH) {
@@ -447,21 +439,12 @@ export async function execute(command: cli.ICommand): Promise<void> {
       return whoami(command);
 
     default:
-      // We should never see this message as invalid commands should be caught by the argument parser.
+      // Unreachable: the parser rejects unknown commands
       throw new Error("Invalid command:  " + JSON.stringify(command));
   }
 }
 
-function getTotalActiveFromDeploymentMetrics(metrics: DeploymentMetrics): number {
-  let totalActive = 0;
-  Object.keys(metrics).forEach((label: string) => {
-    totalActive += metrics[label].active;
-  });
-
-  return totalActive;
-}
-
-function initiateExternalAuthenticationAsync(action: string, serverUrl?: string): void {
+function openLoginPage(serverUrl?: string): void {
   const hostname: string = os.hostname();
   const url: string = `${serverUrl || AccountManager.APP_SERVER_URL}/cli-login?hostname=${hostname}`;
   log("Opening your browser...");
@@ -470,7 +453,7 @@ function initiateExternalAuthenticationAsync(action: string, serverUrl?: string)
 }
 
 async function link(command: cli.ILinkCommand): Promise<void> {
-  initiateExternalAuthenticationAsync("link", command.serverUrl);
+  openLoginPage(command.serverUrl);
 }
 
 async function login(command: cli.ILoginCommand): Promise<void> {
@@ -482,17 +465,17 @@ async function login(command: cli.ILoginCommand): Promise<void> {
       throw new Error("Invalid access key.");
     }
   } else {
-    await loginWithExternalAuthentication("login", command.apiServerUrl, command.appServerUrl);
+    await loginWithExternalAuthentication(command.apiServerUrl, command.appServerUrl);
   }
 }
 
-async function loginWithExternalAuthentication(action: string, apiServerUrl?: string, appServerUrl?: string): Promise<void> {
-  initiateExternalAuthenticationAsync(action, appServerUrl);
-  log(""); // Insert newline
+async function loginWithExternalAuthentication(apiServerUrl?: string, appServerUrl?: string): Promise<void> {
+  openLoginPage(appServerUrl);
+  log("");
 
   const accessKey: string = await requestAccessKey();
   if (accessKey === null) {
-    // The user has aborted the synchronous prompt (e.g.:  via [CTRL]+[C]).
+    // Cancelled with Ctrl+C
     return;
   }
 
@@ -511,7 +494,7 @@ async function logout(_command: cli.ICommand): Promise<void> {
     try {
       await sdk.removeSession(machineName);
     } catch (error) {
-      // If we are not authenticated or the session doesn't exist anymore, just swallow the error instead of displaying it
+      // Not logged in, or the session is already gone: nothing to remove
       if (error.statusCode !== AccountManager.ERROR_UNAUTHORIZED && error.statusCode !== AccountManager.ERROR_NOT_FOUND) {
         throw error;
       }
@@ -522,21 +505,8 @@ async function logout(_command: cli.ICommand): Promise<void> {
   deleteConnectionInfoCache();
 }
 
-async function getReactNativeProjectVersionInfo(
-  command: cli.IReleaseReactCommand,
-  projectName: string
-): Promise<cli.ProjectVersionInfo> {
-  log(chalk.cyan(`Detecting ${command.platform} app version:\n`));
-
-  if (command.platform === "ios") {
-    return getIosVersionInfo(command, projectName);
-  } else if (command.platform === "android") {
-    return getAndroidVersionInfo(command.gradleFile);
-  }
-}
-
 async function register(command: cli.IRegisterCommand): Promise<void> {
-  return loginWithExternalAuthentication("register", command.serverUrl);
+  return loginWithExternalAuthentication(command.apiServerUrl, command.appServerUrl);
 }
 
 async function promote(command: cli.IPromoteCommand): Promise<void> {
@@ -577,8 +547,7 @@ async function patch(command: cli.IPatchCommand): Promise<void> {
     buildNumber: command.buildNumber, // undefined = skip, null = reset to wildcard, string = retarget
   };
 
-  // Standard fields use null as "not provided"; buildNumber uses undefined (null means reset).
-  // Check both to avoid treating an unset buildNumber (undefined) as a valid update.
+  // Other fields are null when not given; buildNumber is undefined, since null resets it
   const hasUpdate = Object.values(packageInfo).some((v) => v !== null && v !== undefined) || command.buildNumber !== undefined;
 
   if (!hasUpdate) {
@@ -594,7 +563,7 @@ async function patch(command: cli.IPatchCommand): Promise<void> {
 }
 
 export const release = async (command: cli.IReleaseCommand): Promise<void> => {
-  // for initial release we explicitly define release as optional, disabled, without rollout, with a special description
+  // An initial release is always optional, disabled and without rollout
   const updateMetadata: PackageInfo = {
     description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,
     isDisabled: command.initial ? true : command.disabled,
@@ -608,6 +577,36 @@ export const release = async (command: cli.IReleaseCommand): Promise<void> => {
   return doRelease(command, updateMetadata);
 };
 
+export const createEmptyTempReleaseFolder = async (folderPath: string): Promise<void> => {
+  await deleteFolder(folderPath);
+  fs.mkdirSync(folderPath);
+};
+
+function deleteFolder(folderPath: string): Promise<void> {
+  return fs.promises.rm(folderPath, { recursive: true, force: true, maxRetries: 3 });
+}
+
+async function deleteReactTempFolders(): Promise<void> {
+  const tempFolder: string = os.tmpdir();
+  // An unreadable temp folder means there is nothing to delete
+  const names: string[] = await fs.promises.readdir(tempFolder).catch((): string[] => []);
+  const reactFolders: string[] = names.filter((name) => name.startsWith("react-"));
+  await Promise.all(reactFolders.map((name) => deleteFolder(path.join(tempFolder, name))));
+}
+
+async function getReactNativeProjectVersionInfo(
+  command: cli.IReleaseReactCommand,
+  projectName: string
+): Promise<cli.ProjectVersionInfo> {
+  log(chalk.cyan(`Detecting ${command.platform} app version:\n`));
+
+  if (command.platform === "ios") {
+    return getIosVersionInfo(command, projectName);
+  } else if (command.platform === "android") {
+    return getAndroidVersionInfo(command.gradleFile);
+  }
+}
+
 const REQUIRED_OUTPUT_DIR_NAME = "CodePush";
 
 interface ReactReleaseInputs {
@@ -617,19 +616,16 @@ interface ReactReleaseInputs {
   projectName: string;
 }
 
-// Up-front validation for the React-style release flows (release-react / release-expo).
-// Throws on the first violation and returns the derived inputs. The semver-range check
-// is done by the caller since it needs the resolved app version.
+// Checks a release-react/release-expo command and derives its inputs. The version range is checked later, once it's known
 function validateReactReleaseCommand(command: cli.IReleaseReactCommand, options: { resolveEntryFile: boolean }): ReactReleaseInputs {
   const { resolveEntryFile } = options;
   const platform: string = (command.platform = command.platform.toLowerCase());
 
-  // Only android and ios are supported.
   if (platform !== "android" && platform !== "ios") {
     throw new Error('Platform must be either "android" or "ios".');
   }
 
-  // Diff updates require the package to live under a "CodePush" folder.
+  // Diff updates require the package to live under a "CodePush" folder
   if (command.outputDir && path.basename(command.outputDir) !== REQUIRED_OUTPUT_DIR_NAME) {
     throw new Error(
       `The "--outputDir" path must end with a folder named "${REQUIRED_OUTPUT_DIR_NAME}" ` +
@@ -637,7 +633,6 @@ function validateReactReleaseCommand(command: cli.IReleaseReactCommand, options:
     );
   }
 
-  // The command must run inside a React Native project.
   let projectPackageJson: any;
   try {
     projectPackageJson = require(path.join(process.cwd(), "package.json"));
@@ -655,7 +650,6 @@ function validateReactReleaseCommand(command: cli.IReleaseReactCommand, options:
     throw new Error("The project in the CWD is not a React Native project.");
   }
 
-  // Resolve and validate the JS entry file (only flows that bundle locally need it).
   let entryFile: string = command.entryFile;
   if (resolveEntryFile) {
     if (!entryFile) {
@@ -671,7 +665,6 @@ function validateReactReleaseCommand(command: cli.IReleaseReactCommand, options:
     }
   }
 
-  // Default the bundle name from the platform when the user did not pass one.
   const bundleName: string = command.bundleName || (platform === "ios" ? "main.jsbundle" : `index.${platform}.bundle`);
 
   return { platform, bundleName, entryFile, projectName };
@@ -779,20 +772,17 @@ async function releaseReactBundle(command: cli.IReleaseReactCommand, bundler: Re
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const sourcemapOutputFolder: string = command.sourcemapOutput || path.join(os.tmpdir(), "CodePushSourceMap");
   const baseReleaseTmpFolder: string = path.join(os.tmpdir(), "CodePushBaseRelease");
-  // releaseCommand below is `command` itself, and it overwrites command.outputDir with the
-  // resolved path -- so capture whether the user actually passed one before that happens.
+  // Read before command.outputDir is overwritten below
   const isTempOutputFolder: boolean = !command.outputDir;
 
   const releaseCommand: cli.IReleaseReactCommand = command;
   releaseCommand.package = outputFolder;
   releaseCommand.outputDir = outputFolder;
   releaseCommand.bundleName = bundleName;
-  // Check that the app and deployment exist before releasing an update.
-  // This validation helps to save about 1 minute or more in case user has typed wrong app or deployment name.
+  // Fail fast on a wrong app or deployment name, before the slow bundling
   await sdk.getDeployment(command.appName, command.deploymentName);
 
-  // buildNumber is NOT auto-detected here — it must be passed explicitly via --buildNumber.
-  // Auto-detection only applies to release-native where the binary build number is the natural targeting key.
+  // Only release-native detects the build number; here it comes from --buildNumber
   const appVersion: string = command.appStoreVersion || (await getReactNativeProjectVersionInfo(command, projectName)).appVersion;
 
   if (!command.sourcemapOutput) {
@@ -803,8 +793,7 @@ async function releaseReactBundle(command: cli.IReleaseReactCommand, bundler: Re
   releaseCommand.appStoreVersion = appVersion;
 
   await createEmptyTempReleaseFolder(outputFolder);
-  // This is needed to clear the react native bundler cache:
-  // https://github.com/facebook/react-native/issues/4289
+  // Clears the React Native bundler cache: https://github.com/facebook/react-native/issues/4289
   await deleteReactTempFolders();
 
   const { isHermes, sourceMaps, bundleOptions } = await planBundle(command, outputFolder, bundleName, sourcemapOutputFolder);
@@ -845,15 +834,12 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
   const targetBinaryPath: string = command.targetBinary;
   const outputFolder: string = command.outputDir || path.join(os.tmpdir(), "CodePush");
   const extractFolder: string = path.join(os.tmpdir(), "CodePushBinaryExtract");
-  // Validate platform
   if (platform !== "ios" && platform !== "android") {
     throw new Error('Platform must be either "ios" or "android" for the "release-native" command.');
   }
-  // Validate target binary file exists
   if (!fileExists(targetBinaryPath)) {
     throw new Error(`Target binary file "${targetBinaryPath}" does not exist.`);
   }
-  // Validate file extension matches platform
   const targetBinaryPathNormalised = targetBinaryPath.toLowerCase();
   if (platform === "ios" && !targetBinaryPathNormalised.endsWith(".ipa")) {
     throw new Error("For iOS platform, target binary must be an .ipa file.");
@@ -864,6 +850,7 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
 
   await sdk.getDeployment(command.appName, command.deploymentName);
 
+  let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
   try {
     await createEmptyTempReleaseFolder(outputFolder);
     await createEmptyTempReleaseFolder(extractFolder);
@@ -871,7 +858,6 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
     if (!bundleName) {
       bundleName = platform === "ios" ? "main.jsbundle" : `index.android.bundle`;
     }
-    let releaseCommandPartial: Partial<cli.IReleaseReactCommand>;
 
     if (platform === "ios") {
       log(chalk.cyan(`\nReading IPA file:\n`));
@@ -931,18 +917,19 @@ export const releaseNative = async (command: cli.IReleaseNativeCommand): Promise
     };
 
     await doNativeRelease(releaseCommand);
-    if (fs.existsSync(releaseCommandPartial.package)) {
-      fs.unlinkSync(releaseCommandPartial.package);
-    }
   } finally {
     try {
       await deleteFolder(extractFolder);
       await deleteFolder(outputFolder);
+      // The upload deletes the metadata zip, but not when the release fails before uploading
+      if (releaseCommandPartial?.package) {
+        await fs.promises.rm(releaseCommandPartial.package, { force: true });
+      }
     } catch {}
   }
 };
 
-// For an initial release we explicitly define it as optional, disabled, without rollout, with a special description
+// An initial release is always optional, disabled and without rollout
 function getReactNativePackageInfo(command: cli.IReleaseReactCommand): ReactNativePackageInfo {
   return {
     description: command.initial ? `Zero release for v${command.appStoreVersion}` : command.description,

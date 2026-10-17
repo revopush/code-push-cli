@@ -12,15 +12,11 @@ const xcode = require("xcode");
 export async function getIosVersionInfo(command: cli.IReleaseReactCommand, projectName: string): Promise<cli.ProjectVersionInfo> {
   let resolvedPlistFile: string = command.plistFile;
   if (resolvedPlistFile) {
-    // If a plist file path is explicitly provided, then we don't
-    // need to attempt to "resolve" it within the well-known locations.
     if (!fileExists(resolvedPlistFile)) {
       throw new Error("The specified plist file doesn't exist. Please check that the provided path is correct.");
     }
   } else {
-    // Allow the plist prefix to be specified with or without a trailing
-    // separator character, but prescribe the use of a hyphen when omitted,
-    // since this is the most commonly used convention for plist files.
+    // The prefix may end with a separator; add the usual hyphen when it doesn't
     if (command.plistFilePrefix && /.+[^-.]$/.test(command.plistFilePrefix)) {
       command.plistFilePrefix += "-";
     }
@@ -72,10 +68,8 @@ async function getAppVersionFromXcodeProject(command: cli.IReleaseReactCommand, 
   const pbxprojFileName = "project.pbxproj";
   let resolvedPbxprojFile: string = command.xcodeProjectFile;
   if (resolvedPbxprojFile) {
-    // If the xcode project file path is explicitly provided, then we don't
-    // need to attempt to "resolve" it within the well-known locations.
     if (!resolvedPbxprojFile.endsWith(pbxprojFileName)) {
-      // Specify path to pbxproj file if the provided file path is an Xcode project file.
+      // An .xcodeproj folder was given
       resolvedPbxprojFile = path.join(resolvedPbxprojFile, pbxprojFileName);
     }
     if (!fileExists(resolvedPbxprojFile)) {
